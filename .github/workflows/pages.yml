@@ -3,8 +3,9 @@ name: Deploy Pages
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'data/**'
+    paths:
+      - 'index.html'
+      - 'CNAME'
   workflow_dispatch:
 
 permissions:
