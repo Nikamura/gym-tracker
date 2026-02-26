@@ -1,12 +1,12 @@
 # LemonGym Occupancy Tracker
 
-Live occupancy tracker for [LemonGym](https://www.lemongym.lt/) clubs in Lithuania. Data is collected every 15 minutes and displayed as interactive charts.
+Live occupancy tracker for [LemonGym](https://www.lemongym.lt/) clubs in Lithuania. Data is collected periodically and displayed as interactive charts.
 
 **https://gym-tracker.cn.lt**
 
 ## How it works
 
-1. A GitHub Actions workflow runs every 15 minutes
+1. A GitHub Actions workflow runs on a schedule
 2. `fetch.sh` queries the LemonGym API for current occupancy percentages across all clubs
 3. Data is appended to daily CSV files in `data/`
 4. The single-page app (`index.html`) fetches CSVs via the GitHub API and renders charts with Chart.js
