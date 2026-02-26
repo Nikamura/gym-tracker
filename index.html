@@ -64,6 +64,22 @@ let allData = [];
 let chart = null;
 let selectedDays = 1;
 
+function readParams() {
+  const p = new URLSearchParams(location.search);
+  return { city: p.get('city'), club: p.get('club'), days: p.get('days') };
+}
+
+function writeParams() {
+  const city = document.getElementById('city').value;
+  const club = document.getElementById('club').value;
+  const p = new URLSearchParams();
+  if (city !== 'all') p.set('city', city);
+  if (club !== 'all') p.set('club', club);
+  if (selectedDays !== 1) p.set('days', selectedDays);
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+}
+
 async function fetchFileList() {
   const res = await fetch(`https://api.github.com/repos/${REPO}/contents/data`);
   if (!res.ok) return [];
@@ -78,7 +94,9 @@ function parseCsv(text) {
   const lines = text.trim().split('\n');
   return lines.slice(1).map(line => {
     const [timestamp, city, club, address, occupancy] = line.split(',');
-    return { timestamp: new Date(timestamp), city, club, address, occupancy: Number(occupancy) };
+    let pct = Number(occupancy);
+    if (pct === 100) pct = 0; // API returns 100 for closed/unavailable clubs
+    return { timestamp: new Date(timestamp), city, club, address, occupancy: pct };
   }).filter(r => !isNaN(r.occupancy));
 }
 
@@ -106,13 +124,22 @@ async function loadData() {
 }
 
 function populateFilters() {
+  const params = readParams();
   const cities = [...new Set(allData.map(r => r.city))].sort();
   const citySelect = document.getElementById('city');
   citySelect.innerHTML = '<option value="all">All cities</option>';
   cities.forEach(c => {
     citySelect.innerHTML += `<option value="${c}">${c}</option>`;
   });
+  if (params.city) citySelect.value = params.city;
   updateClubFilter();
+  if (params.club) document.getElementById('club').value = params.club;
+  if (params.days) {
+    selectedDays = Number(params.days);
+    document.querySelectorAll('button[data-days]').forEach(b => {
+      b.classList.toggle('active', Number(b.dataset.days) === selectedDays);
+    });
+  }
 }
 
 function updateClubFilter() {
@@ -188,14 +215,15 @@ function renderChart() {
   });
 }
 
-document.getElementById('city').addEventListener('change', () => { updateClubFilter(); renderChart(); });
-document.getElementById('club').addEventListener('change', renderChart);
+document.getElementById('city').addEventListener('change', () => { updateClubFilter(); renderChart(); writeParams(); });
+document.getElementById('club').addEventListener('change', () => { renderChart(); writeParams(); });
 document.querySelectorAll('button[data-days]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('button[data-days]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     selectedDays = Number(btn.dataset.days);
     renderChart();
+    writeParams();
   });
 });
 
