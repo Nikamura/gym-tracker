@@ -18,6 +18,11 @@
   .time-buttons button.active { background: #1f6feb; border-color: #1f6feb; }
   .chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; height: 60vh; min-height: 300px; position: relative; }
   .loading { text-align: center; padding: 40px; color: #8b949e; }
+  .status-boxes { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .status-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; min-width: 120px; flex: 1; max-width: 200px; }
+  .status-box .club-name { font-size: 12px; color: #8b949e; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status-box .club-value { font-size: 24px; font-weight: 600; }
+  .status-box .club-value::after { content: '%'; font-size: 14px; font-weight: 400; color: #8b949e; margin-left: 2px; }
   @media (max-width: 480px) {
     body { padding: 12px; }
     select { max-width: none; flex: 1 1 calc(50% - 4px); }
@@ -50,6 +55,8 @@
   <div class="loading" id="loading">Loading data...</div>
   <canvas id="chart" style="display:none"></canvas>
 </div>
+
+<div class="status-boxes" id="status-boxes"></div>
 
 <script>
 const REPO = 'Nikamura/gym-tracker';
@@ -177,6 +184,14 @@ function renderChart() {
   document.getElementById('loading').style.display = 'none';
   const canvas = document.getElementById('chart');
   canvas.style.display = 'block';
+
+  const statusContainer = document.getElementById('status-boxes');
+  statusContainer.innerHTML = clubs.map((c, i) => {
+    const clubData = filtered.filter(r => r.club === c);
+    const latest = clubData[clubData.length - 1];
+    const color = COLORS[i % COLORS.length];
+    return `<div class="status-box" style="border-color:${color}40"><div class="club-name" title="${c}">${c}</div><div class="club-value" style="color:${color}">${latest ? latest.occupancy : '–'}</div></div>`;
+  }).join('');
 
   if (chart) chart.destroy();
   chart = new Chart(canvas, {
