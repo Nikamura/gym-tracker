@@ -59,7 +59,7 @@ pct=$(curl -sf -X POST "$ZALGIRIS_URL" \
   --data-raw 'action=custom_current_capacity' \
   | jq -r '.percent // empty')
 
-if [ -n "$pct" ]; then
+if [[ "$pct" =~ ^[0-9]+$ ]] && [ "$pct" -ge 1 ] && [ "$pct" -le 99 ]; then
   echo "$TIMESTAMP,Kauno klubai,Kauno Žalgirio baseinas,Karaliaus Mindaugo pr. 50; Kaunas,$pct" >> "$FILE"
 fi
 
