@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gym Occupancy Tracker</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0d1117">
 <meta name="description" content="Live occupancy tracker for gyms and pools in Lithuania">
 <meta property="og:title" content="Gym Occupancy Tracker">
 <meta property="og:description" content="Live occupancy tracker for gyms and pools in Lithuania">
@@ -390,6 +395,24 @@ document.querySelectorAll('button[data-days]').forEach(btn => {
 });
 
 loadData();
+
+// Auto-refresh every 5 minutes
+setInterval(async () => {
+  const files = await fetchFileList();
+  if (!files.length) return;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const relevantFiles = files.filter(f => f.replace('.csv', '') >= cutoff.toISOString().slice(0, 10));
+  const results = await Promise.all(
+    relevantFiles.map(async f => {
+      const res = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/${f}`);
+      return res.ok ? res.text() : '';
+    })
+  );
+  allData = results.flatMap(parseCsv);
+  renderChart();
+}, 5 * 60 * 1000);
+
 </script>
 <!-- 100% privacy-first analytics -->
 <script data-collect-dnt="true" async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
