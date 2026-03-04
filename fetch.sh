@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-API_URL="https://www.lemongym.lt/wp-json/api/async-render-block?pid=MTI2NQ==&bid=YWNmL2NsdWJzLW9jY3VwYW5jeQ==&rest_language=lt"
 DATA_DIR="$(dirname "$0")/data"
 TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 DATE="$(date -u '+%Y-%m-%d')"
@@ -14,8 +13,10 @@ if [ ! -f "$FILE" ]; then
   echo "timestamp,city,club,address,occupancy" > "$FILE"
 fi
 
-# Fetch and parse
-html=$(curl -sf "$API_URL" | jq -r '.data.content')
+# --- LemonGym ---
+LEMON_URL="https://www.lemongym.lt/wp-json/api/async-render-block?pid=MTI2NQ==&bid=YWNmL2NsdWJzLW9jY3VwYW5jeQ==&rest_language=lt"
+
+html=$(curl -sf "$LEMON_URL" | jq -r '.data.content')
 
 echo "$html" | awk -v ts="$TIMESTAMP" '
   /<h5 / {
@@ -47,6 +48,20 @@ echo "$html" | awk -v ts="$TIMESTAMP" '
     print ts "," city "," club "," addr "," pct
   }
 ' >> "$FILE"
+
+# --- Žalgirio baseinas ---
+ZALGIRIS_URL="https://www.zalgiriobaseinas.lt/_/r/"
+
+pct=$(curl -sf -X POST "$ZALGIRIS_URL" \
+  -A 'Mozilla/5.0' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -H 'X-Requested-With: XMLHttpRequest' \
+  --data-raw 'action=custom_current_capacity' \
+  | jq -r '.percent // empty')
+
+if [ -n "$pct" ]; then
+  echo "$TIMESTAMP,Kauno klubai,Žalgirio baseinas,Karaliaus Mindaugo pr. 50; Kaunas,$pct" >> "$FILE"
+fi
 
 lines=$(wc -l < "$FILE")
 echo "Saved to $FILE ($((lines - 1)) total records)"
