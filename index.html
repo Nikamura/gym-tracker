@@ -34,11 +34,18 @@
   .status-box .club-name { font-size: 12px; color: #8b949e; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .status-box .club-value { font-size: 24px; font-weight: 600; }
   .status-box .club-value::after { content: '%'; font-size: 14px; font-weight: 400; color: #8b949e; margin-left: 2px; }
+  .club-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .club-chip { display: inline-flex; align-items: center; gap: 5px; background: #161b22; border: 1px solid #30363d; border-radius: 16px; padding: 5px 12px; font-size: 12px; cursor: pointer; user-select: none; transition: opacity 0.15s; color: #e6edf3; }
+  .club-chip:hover { border-color: #58a6ff; }
+  .club-chip.hidden { opacity: 0.35; }
+  .club-chip .chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   @media (max-width: 480px) {
     body { padding: 12px; }
     select { max-width: none; flex: 1 1 calc(50% - 4px); }
     .time-buttons { width: 100%; }
     .time-buttons button { flex: 1; padding: 10px 4px; }
+    .club-chips { gap: 4px; }
+    .club-chip { padding: 4px 8px; font-size: 11px; }
   }
 </style>
 </head>
@@ -51,9 +58,6 @@
   <select id="city">
     <option value="all">All cities</option>
   </select>
-  <select id="club">
-    <option value="all">All clubs</option>
-  </select>
   <div class="time-buttons">
     <button class="active" data-days="1">Today</button>
     <button data-days="3">3d</button>
@@ -61,6 +65,8 @@
     <button data-days="30">30d</button>
   </div>
 </div>
+
+<div class="club-chips" id="club-chips"></div>
 
 <div class="chart-container">
   <div class="loading" id="loading">Loading data...</div>
@@ -81,18 +87,19 @@ const COLORS = [
 let allData = [];
 let chart = null;
 let selectedDays = 1;
+let hiddenClubs = new Set();
 
 function readParams() {
   const p = new URLSearchParams(location.search);
-  return { city: p.get('city'), club: p.get('club'), days: p.get('days') };
+  const hiddenStr = p.get('hidden');
+  return { city: p.get('city'), hidden: hiddenStr ? hiddenStr.split(',') : [], days: p.get('days') };
 }
 
 function writeParams() {
   const city = document.getElementById('city').value;
-  const club = document.getElementById('club').value;
   const p = new URLSearchParams();
   if (city !== 'all') p.set('city', city);
-  if (club !== 'all') p.set('club', club);
+  if (hiddenClubs.size > 0) p.set('hidden', [...hiddenClubs].join(','));
   if (selectedDays !== 1) p.set('days', selectedDays);
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
@@ -150,8 +157,7 @@ function populateFilters() {
     citySelect.innerHTML += `<option value="${c}">${c}</option>`;
   });
   if (params.city) citySelect.value = params.city;
-  updateClubFilter();
-  if (params.club) document.getElementById('club').value = params.club;
+  hiddenClubs = new Set(params.hidden);
   if (params.days) {
     selectedDays = Number(params.days);
     document.querySelectorAll('button[data-days]').forEach(b => {
@@ -160,28 +166,68 @@ function populateFilters() {
   }
 }
 
-function updateClubFilter() {
-  const city = document.getElementById('city').value;
-  const filtered = city === 'all' ? allData : allData.filter(r => r.city === city);
-  const clubs = [...new Set(filtered.map(r => r.club))].sort();
-  const clubSelect = document.getElementById('club');
-  clubSelect.innerHTML = '<option value="all">All clubs</option>';
-  clubs.forEach(c => {
-    clubSelect.innerHTML += `<option value="${c}">${c}</option>`;
+function renderClubChips(clubs) {
+  const container = document.getElementById('club-chips');
+  container.innerHTML = clubs.map((c, i) => {
+    const color = COLORS[i % COLORS.length];
+    const hiddenClass = hiddenClubs.has(c) ? ' hidden' : '';
+    return `<button class="club-chip${hiddenClass}" data-club="${c}"><span class="chip-dot" style="background:${color}"></span>${c}</button>`;
+  }).join('');
+  container.querySelectorAll('.club-chip').forEach(chip => {
+    chip.addEventListener('click', () => toggleClubVisibility(chip.dataset.club));
+  });
+}
+
+function toggleClubVisibility(clubName, allClubs) {
+  if (!allClubs) {
+    allClubs = [...document.querySelectorAll('.club-chip')].map(c => c.dataset.club);
+  }
+  const visibleCount = allClubs.filter(c => !hiddenClubs.has(c)).length;
+
+  if (hiddenClubs.has(clubName)) {
+    // Hidden club clicked → show it
+    hiddenClubs.delete(clubName);
+  } else if (visibleCount === 1) {
+    // Last visible club clicked → show all
+    hiddenClubs.clear();
+  } else if (hiddenClubs.size === 0) {
+    // All visible, click one → solo it
+    allClubs.forEach(c => { if (c !== clubName) hiddenClubs.add(c); });
+  } else {
+    // Some hidden, toggle this one off
+    hiddenClubs.add(clubName);
+  }
+  syncVisibility();
+  writeParams();
+}
+
+function syncVisibility() {
+  document.querySelectorAll('.club-chip').forEach(chip => {
+    chip.classList.toggle('hidden', hiddenClubs.has(chip.dataset.club));
+  });
+  if (chart) {
+    chart.data.datasets.forEach((ds, i) => {
+      chart.getDatasetMeta(i).hidden = hiddenClubs.has(ds.label);
+    });
+    chart.update('none');
+  }
+  document.querySelectorAll('.status-box').forEach(box => {
+    const name = box.querySelector('.club-name').textContent;
+    box.style.display = hiddenClubs.has(name) ? 'none' : '';
   });
 }
 
 function renderChart() {
   const city = document.getElementById('city').value;
-  const club = document.getElementById('club').value;
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - selectedDays);
 
   let filtered = allData.filter(r => r.timestamp >= cutoff);
   if (city !== 'all') filtered = filtered.filter(r => r.city === city);
-  if (club !== 'all') filtered = filtered.filter(r => r.club === club);
 
   const clubs = [...new Set(filtered.map(r => r.club))].sort();
+  renderClubChips(clubs);
+
   const datasets = clubs.map((c, i) => ({
     label: c,
     data: filtered.filter(r => r.club === c).map(r => ({ x: r.timestamp, y: r.occupancy })),
@@ -190,6 +236,7 @@ function renderChart() {
     borderWidth: 2,
     pointRadius: selectedDays <= 1 ? 3 : selectedDays <= 3 ? 2 : 0,
     tension: 0.3,
+    hidden: hiddenClubs.has(c),
   }));
 
   document.getElementById('loading').style.display = 'none';
@@ -201,7 +248,8 @@ function renderChart() {
     const clubData = filtered.filter(r => r.club === c);
     const latest = clubData[clubData.length - 1];
     const color = COLORS[i % COLORS.length];
-    return `<div class="status-box" style="border-color:${color}40"><div class="club-name" title="${c}">${c}</div><div class="club-value" style="color:${color}">${latest ? latest.occupancy : '–'}</div></div>`;
+    const display = hiddenClubs.has(c) ? 'display:none;' : '';
+    return `<div class="status-box" style="border-color:${color}40;${display}"><div class="club-name" title="${c}">${c}</div><div class="club-value" style="color:${color}">${latest ? latest.occupancy : '–'}</div></div>`;
   }).join('');
 
   if (chart) chart.destroy();
@@ -227,10 +275,7 @@ function renderChart() {
         }
       },
       plugins: {
-        legend: {
-          position: window.innerWidth < 600 ? 'bottom' : 'top',
-          labels: { color: '#e6edf3', boxWidth: 12, padding: 8, font: { size: 11 } }
-        },
+        legend: { display: false },
         tooltip: {
           callbacks: {
             label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}%`
@@ -241,8 +286,7 @@ function renderChart() {
   });
 }
 
-document.getElementById('city').addEventListener('change', () => { updateClubFilter(); renderChart(); writeParams(); });
-document.getElementById('club').addEventListener('change', () => { renderChart(); writeParams(); });
+document.getElementById('city').addEventListener('change', () => { hiddenClubs.clear(); renderChart(); writeParams(); });
 document.querySelectorAll('button[data-days]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('button[data-days]').forEach(b => b.classList.remove('active'));
