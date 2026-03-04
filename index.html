@@ -17,26 +17,38 @@
 <meta name="twitter:description" content="Live occupancy tracker for gyms and pools in Lithuania">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+<script>
+  // Apply theme before render to prevent flash
+  (function() {
+    var t = localStorage.getItem('theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
 <style>
+  :root { --bg: #0d1117; --bg2: #161b22; --text: #e6edf3; --text2: #8b949e; --border: #30363d; --accent: #1f6feb; --accent-hover: #58a6ff; --grid: #21262d; }
+  :root[data-theme="light"] { --bg: #ffffff; --bg2: #f6f8fa; --text: #1f2328; --text2: #656d76; --border: #d1d9e0; --accent: #0969da; --accent-hover: #0550ae; --grid: #d1d9e0; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; background: #0d1117; color: #e6edf3; padding: 16px; max-width: 1200px; margin: 0 auto; }
-  h1 { margin-bottom: 4px; font-size: clamp(1.2rem, 4vw, 1.8rem); }
-  .subtitle { color: #8b949e; margin-bottom: 16px; font-size: 14px; }
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 16px; max-width: 1200px; margin: 0 auto; }
+  .header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  h1 { font-size: clamp(1.2rem, 4vw, 1.8rem); }
+  .theme-toggle { background: var(--bg2); color: var(--text2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 18px; line-height: 1; margin-left: auto; }
+  .theme-toggle:hover { border-color: var(--accent-hover); }
+  .subtitle { color: var(--text2); margin-bottom: 16px; font-size: 14px; }
   .controls { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-  select { background: #161b22; color: #e6edf3; border: 1px solid #30363d; padding: 8px 12px; border-radius: 6px; font-size: 14px; cursor: pointer; flex: 1; min-width: 0; max-width: 200px; }
+  select { background: var(--bg2); color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; font-size: 14px; cursor: pointer; flex: 1; min-width: 0; max-width: 200px; }
   .time-buttons { display: flex; gap: 4px; }
-  .time-buttons button { background: #161b22; color: #e6edf3; border: 1px solid #30363d; padding: 8px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; white-space: nowrap; }
-  .time-buttons button.active { background: #1f6feb; border-color: #1f6feb; }
-  .chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; height: 60vh; min-height: 300px; position: relative; }
-  .loading { text-align: center; padding: 40px; color: #8b949e; }
+  .time-buttons button { background: var(--bg2); color: var(--text); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .time-buttons button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chart-container { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; height: 60vh; min-height: 300px; position: relative; }
+  .loading { text-align: center; padding: 40px; color: var(--text2); }
   .status-boxes { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .status-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; min-width: 120px; flex: 1; max-width: 200px; }
-  .status-box .club-name { font-size: 12px; color: #8b949e; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; min-width: 120px; flex: 1; max-width: 200px; }
+  .status-box .club-name { font-size: 12px; color: var(--text2); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .status-box .club-value { font-size: 24px; font-weight: 600; }
-  .status-box .club-value::after { content: '%'; font-size: 14px; font-weight: 400; color: #8b949e; margin-left: 2px; }
+  .status-box .club-value::after { content: '%'; font-size: 14px; font-weight: 400; color: var(--text2); margin-left: 2px; }
   .club-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-  .club-chip { display: inline-flex; align-items: center; gap: 5px; background: #161b22; border: 1px solid #30363d; border-radius: 16px; padding: 5px 12px; font-size: 12px; cursor: pointer; user-select: none; transition: opacity 0.15s; color: #e6edf3; }
-  .club-chip:hover { border-color: #58a6ff; }
+  .club-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 5px 12px; font-size: 12px; cursor: pointer; user-select: none; transition: opacity 0.15s; color: var(--text); }
+  .club-chip:hover { border-color: var(--accent-hover); }
   .club-chip.hidden { opacity: 0.35; }
   .club-chip .chip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   @media (max-width: 480px) {
@@ -51,7 +63,10 @@
 </head>
 <body>
 
-<h1>Gym Occupancy Tracker</h1>
+<div class="header">
+  <h1>Gym Occupancy Tracker</h1>
+  <button class="theme-toggle" id="theme-toggle" title="Toggle theme">&#9790;</button>
+</div>
 <p class="subtitle">Live occupancy data collected periodically</p>
 
 <div class="controls">
@@ -88,6 +103,23 @@ let allData = [];
 let chart = null;
 let selectedDays = 1;
 let hiddenClubs = new Set();
+
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function applyThemeIcon() {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  document.getElementById('theme-toggle').innerHTML = isDark ? '&#9790;' : '&#9728;';
+}
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  applyThemeIcon();
+  if (chart) renderChart();
+});
+
+applyThemeIcon();
 
 function readParams() {
   const p = new URLSearchParams(location.search);
@@ -264,14 +296,14 @@ function renderChart() {
         x: {
           type: 'time',
           time: { tooltipFormat: 'MMM d, HH:mm' },
-          grid: { color: '#21262d' },
-          ticks: { color: '#8b949e' },
+          grid: { color: cssVar('--grid') },
+          ticks: { color: cssVar('--text2') },
         },
         y: {
           min: 0, max: 100,
-          title: { display: true, text: 'Occupancy %', color: '#8b949e' },
-          grid: { color: '#21262d' },
-          ticks: { color: '#8b949e' },
+          title: { display: true, text: 'Occupancy %', color: cssVar('--text2') },
+          grid: { color: cssVar('--grid') },
+          ticks: { color: cssVar('--text2') },
         }
       },
       plugins: {
