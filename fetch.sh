@@ -49,7 +49,7 @@ echo "$html" | awk -v ts="$TIMESTAMP" '
   }
 ' >> "$FILE"
 
-# --- Žalgirio baseinas ---
+# --- Kauno Žalgirio baseinas ---
 ZALGIRIS_URL="https://www.zalgiriobaseinas.lt/_/r/"
 
 pct=$(curl -sf -X POST "$ZALGIRIS_URL" \
@@ -60,7 +60,7 @@ pct=$(curl -sf -X POST "$ZALGIRIS_URL" \
   | jq -r '.percent // empty')
 
 if [ -n "$pct" ]; then
-  echo "$TIMESTAMP,Kauno klubai,Žalgirio baseinas,Karaliaus Mindaugo pr. 50; Kaunas,$pct" >> "$FILE"
+  echo "$TIMESTAMP,Kauno klubai,Kauno Žalgirio baseinas,Karaliaus Mindaugo pr. 50; Kaunas,$pct" >> "$FILE"
 fi
 
 lines=$(wc -l < "$FILE")

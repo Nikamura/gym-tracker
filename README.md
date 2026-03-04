@@ -7,7 +7,7 @@ Live occupancy tracker for gyms and pools in Lithuania. Data is collected period
 ## Sources
 
 - [LemonGym](https://www.lemongym.lt/) — all clubs across Vilnius, Kaunas, and Šiauliai
-- [Žalgirio baseinas](https://www.zalgiriobaseinas.lt/) — pool in Kaunas
+- [Kauno Žalgirio baseinas](https://www.zalgiriobaseinas.lt/) — pool in Kaunas
 
 ## How it works
 
