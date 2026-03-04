@@ -1,27 +1,32 @@
-# LemonGym Occupancy Tracker
+# Gym Occupancy Tracker
 
-Live occupancy tracker for [LemonGym](https://www.lemongym.lt/) clubs in Lithuania. Data is collected periodically and displayed as interactive charts.
+Live occupancy tracker for gyms and pools in Lithuania. Data is collected periodically and displayed as interactive charts.
 
 **https://gym-tracker.cn.lt**
+
+## Sources
+
+- [LemonGym](https://www.lemongym.lt/) — all clubs across Vilnius, Kaunas, and Šiauliai
+- [Žalgirio baseinas](https://www.zalgiriobaseinas.lt/) — pool in Kaunas
 
 ## How it works
 
 1. A GitHub Actions workflow runs on a schedule
-2. `fetch.sh` queries the LemonGym API for current occupancy percentages across all clubs
+2. `fetch.sh` scrapes occupancy data from each source
 3. Data is appended to daily CSV files in `data/`
 4. The single-page app (`index.html`) fetches CSVs via the GitHub API and renders charts with Chart.js
 
 ## Filters
 
-- **City** — filter by Vilnius, Kaunas, or Šiauliai
-- **Club** — filter to a specific gym location
+- **City** — filter by city
+- **Club** — filter to a specific location
 - **Time range** — Today, 3d, 7d, or 30d
 
 Filter state is preserved in the URL for easy sharing.
 
 ## Data format
 
-CSV files in `data/` with one row per club per data point:
+CSV files in `data/` with one row per location per data point:
 
 ```
 timestamp,city,club,address,occupancy
