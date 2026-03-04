@@ -25,8 +25,8 @@
   })();
 </script>
 <style>
-  :root { --bg: #0d1117; --bg2: #161b22; --text: #e6edf3; --text2: #8b949e; --border: #30363d; --accent: #1f6feb; --accent-hover: #58a6ff; --grid: #21262d; }
-  :root[data-theme="light"] { --bg: #ffffff; --bg2: #f6f8fa; --text: #1f2328; --text2: #656d76; --border: #d1d9e0; --accent: #0969da; --accent-hover: #0550ae; --grid: #d1d9e0; }
+  :root { --bg: #0d1117; --bg2: #161b22; --text: #e6edf3; --text2: #8b949e; --border: #30363d; --accent: #1f6feb; --accent-hover: #58a6ff; --grid: #21262d; --weekend: rgba(255,255,255,0.03); }
+  :root[data-theme="light"] { --bg: #ffffff; --bg2: #f6f8fa; --text: #1f2328; --text2: #656d76; --border: #d1d9e0; --accent: #0969da; --accent-hover: #0550ae; --grid: #d1d9e0; --weekend: rgba(0,0,0,0.04); }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 16px; max-width: 1200px; margin: 0 auto; }
   .header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -98,6 +98,35 @@ const COLORS = [
   '#aec7e8','#ffbb78','#98df8a','#ff9896','#c5b0d5',
   '#c49c94','#f7b6d2','#c7c7c7','#dbdb8d','#9edae5'
 ];
+
+const weekendShading = {
+  id: 'weekendShading',
+  beforeDatasetsDraw(chart) {
+    const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+    if (!x) return;
+    const color = cssVar('--weekend');
+    const startMs = x.min;
+    const endMs = x.max;
+    // Find the Saturday at or before the visible range start
+    const d = new Date(startMs);
+    d.setHours(0, 0, 0, 0);
+    const dow = d.getDay();
+    if (dow !== 6) d.setDate(d.getDate() - ((dow + 1) % 7));
+    ctx.save();
+    ctx.fillStyle = color;
+    while (d.getTime() < endMs) {
+      const satStart = d.getTime();
+      const mon = new Date(d);
+      mon.setDate(mon.getDate() + 2);
+      const monStart = mon.getTime();
+      const left = x.getPixelForValue(Math.max(satStart, startMs));
+      const right = x.getPixelForValue(Math.min(monStart, endMs));
+      if (right > left) ctx.fillRect(left, top, right - left, bottom - top);
+      d.setDate(d.getDate() + 7);
+    }
+    ctx.restore();
+  }
+};
 
 let allData = [];
 let chart = null;
@@ -297,6 +326,7 @@ function renderChart() {
   chart = new Chart(canvas, {
     type: 'line',
     data: { datasets },
+    plugins: [weekendShading],
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -304,7 +334,7 @@ function renderChart() {
       scales: {
         x: {
           type: 'time',
-          time: { tooltipFormat: 'MMM d, HH:mm' },
+          time: { tooltipFormat: 'EEE, MMM d, HH:mm' },
           ...(selectedDays === 1 ? {
             min: new Date(new Date().setHours(0, 0, 0, 0)),
             max: new Date(new Date().setHours(23, 59, 59, 999)),
