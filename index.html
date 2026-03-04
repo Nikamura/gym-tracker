@@ -74,9 +74,9 @@
     <option value="all">All cities</option>
   </select>
   <div class="time-buttons">
-    <button class="active" data-days="1">Today</button>
+    <button data-days="1">Today</button>
     <button data-days="3">3d</button>
-    <button data-days="7">7d</button>
+    <button data-days="7" class="active">7d</button>
     <button data-days="30">30d</button>
   </div>
 </div>
@@ -101,7 +101,7 @@ const COLORS = [
 
 let allData = [];
 let chart = null;
-let selectedDays = 1;
+let selectedDays = 7;
 let selectedClubs = new Set(); // empty = all visible
 
 function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -136,7 +136,7 @@ function writeParams() {
   const p = new URLSearchParams();
   if (city !== 'all') p.set('city', city);
   if (selectedClubs.size > 0) p.set('clubs', [...selectedClubs].join(','));
-  if (selectedDays !== 1) p.set('days', selectedDays);
+  if (selectedDays !== 7) p.set('days', selectedDays);
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
@@ -257,7 +257,11 @@ function syncVisibility() {
 function renderChart() {
   const city = document.getElementById('city').value;
   const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - selectedDays);
+  if (selectedDays === 1) {
+    cutoff.setHours(0, 0, 0, 0); // start of today
+  } else {
+    cutoff.setDate(cutoff.getDate() - selectedDays);
+  }
 
   let filtered = allData.filter(r => r.timestamp >= cutoff);
   if (city !== 'all') filtered = filtered.filter(r => r.city === city);
@@ -301,6 +305,10 @@ function renderChart() {
         x: {
           type: 'time',
           time: { tooltipFormat: 'MMM d, HH:mm' },
+          ...(selectedDays === 1 ? {
+            min: new Date(new Date().setHours(0, 0, 0, 0)),
+            max: new Date(new Date().setHours(23, 59, 59, 999)),
+          } : {}),
           grid: { color: cssVar('--grid') },
           ticks: { color: cssVar('--text2') },
         },
