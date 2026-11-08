@@ -36,3 +36,11 @@ timestamp,city,club,address,occupancy
 ## Local development
 
 Just open `index.html` in a browser. Data is fetched from GitHub at runtime — no build step needed.
+
+## Analytics and delivery
+
+GoatCounter uses same-origin `/stats/count` and `/stats/count.js`. The `/stats/`
+dashboard is behind homelab admin Google OAuth. GitHub Pages still deploys and
+hosts the static files; Caddy fronts the custom domain to route `/stats/*`
+locally and proxy the rest to GitHub Pages. Route source: homelab-maint,
+`stacks/goatcounter/routes.caddy`.
