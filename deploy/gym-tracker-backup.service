@@ -1,0 +1,9 @@
+[Unit]
+Description=Consistent Gym Tracker SQLite backup to Baium
+RequiresMountsFor=/mnt/baium/data
+
+[Service]
+Type=oneshot
+User=karolis
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/stacks/gym-tracker/deploy/backup.py

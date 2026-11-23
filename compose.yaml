@@ -12,12 +12,15 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    mem_limit: 128m
+    mem_limit: 192m
     volumes:
       - ./db:/db
     networks:
       - vpn_clients
+      - caddy_default
 
 networks:
   vpn_clients:
+    external: true
+  caddy_default:
     external: true

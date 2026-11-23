@@ -1,13 +1,14 @@
 import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { ProxyAgent, fetch } from 'undici';
 import { HttpError, runSource, type Fetcher } from './collector.ts';
 import { openStore } from './db.ts';
 import { applyRetention } from './retention.ts';
+import { createHandler } from './server.ts';
 import { SOURCES } from './sources.ts';
 
 const INTERVAL_MS = 15 * 60_000;
 const MAX_JITTER_MS = 90_000;
-const STALE_SECONDS = 45 * 60;
 const RETENTION_INTERVAL_MS = 24 * 3600_000;
 
 // Fail closed: without a proxy the collector refuses to run, so requests can
@@ -50,18 +51,7 @@ function retain() {
   }
 }
 
-const server = createServer((req, res) => {
-  if (req.url !== '/healthz') {
-    res.writeHead(404).end();
-    return;
-  }
-  const now = Math.floor(Date.now() / 1000);
-  const statuses = store.allStatuses();
-  const lemon = statuses.find((s) => s.source === 'lemongym');
-  const healthy = !!lemon?.lastOk && now - lemon.lastOk < STALE_SECONDS;
-  res.writeHead(healthy ? 200 : 503, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ healthy, ...store.counts(), sources: statuses }));
-});
+const server = createServer(createHandler(store, fileURLToPath(new URL('../public', import.meta.url))));
 server.listen(8080);
 
 let stopping = false;

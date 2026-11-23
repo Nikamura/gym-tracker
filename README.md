@@ -1,46 +1,43 @@
-# Gym Occupancy Tracker
+# Gym Tracker
 
-Live occupancy tracker for gyms and pools in Lithuania. Data is collected periodically and displayed as interactive charts.
+See how busy gyms and pools in Lithuania are right now, and when it is best to go.
 
 **https://gym-tracker.cn.lt**
 
 ## Sources
 
-- [LemonGym](https://www.lemongym.lt/) — all clubs across Vilnius, Kaunas, and Šiauliai
-- [Kauno Žalgirio baseinas](https://www.zalgiriobaseinas.lt/) — pool in Kaunas
+- [LemonGym](https://www.lemongym.lt/): clubs in Vilnius, Kaunas, and Šiauliai
+- [Kauno Žalgirio baseinas](https://www.zalgiriobaseinas.lt/): pool in Kaunas
 
 ## How it works
 
-1. A GitHub Actions workflow runs on a schedule
-2. `fetch.sh` scrapes occupancy data from each source
-3. Data is appended to daily CSV files in `data/`
-4. The single-page app (`index.html`) fetches CSVs via the GitHub API and renders charts with Chart.js
+A small TypeScript service runs in Docker on the homelab:
 
-## Filters
+1. Every 15 minutes it reads both sources through the VPN proxy. Without a proxy it refuses to start, and on HTTP 403 or 429 it pauses that source for 6 hours.
+2. Samples go into SQLite through Drizzle, at about 13 bytes each.
+3. The same service serves the JSON API and the static site in `public/`.
 
-- **City** — filter by city
-- **Club** — filter to a specific location
-- **Time range** — Today, 3d, 7d, or 30d
+Samples are kept at 15-minute detail for 400 days, hourly until 5 years, then deleted. That keeps the database to tens of megabytes.
 
-Filter state is preserved in the URL for easy sharing.
+The CSV files in `data/` are the original history and were imported into SQLite.
 
-## Data format
+## Reading the data
 
-CSV files in `data/` with one row per location per data point:
+- The source reports `100` for both full and closed clubs. It is stored as received. On read it counts as full only when an adjacent reading was at least 70%.
+- Marketing suffixes in club names are removed, so renamed clubs keep their history.
+- "Best time to go" uses the median for each weekday and hour over the last 6 months, and picks the quietest 2-hour visit inside the chosen part of the day.
 
+## Development
+
+```sh
+pnpm install
+pnpm test
+pnpm typecheck
+PROXY_URL=http://user:pass@proxy:3128 pnpm start
 ```
-timestamp,city,club,address,occupancy
-2026-02-26T10:04:48Z,Vilniaus klubai,Pilaitė (atnaujintas),Vydūno g. 2; Vilnius,9
-```
 
-## Local development
+## Deployment
 
-Just open `index.html` in a browser. Data is fetched from GitHub at runtime — no build step needed.
+The checkout is at `/opt/stacks/gym-tracker` on the Docker host. Push to GitHub, check out the commit there, then run `docker compose up -d --build`. `.env`, `db/`, and `DEPLOYED_COMMIT` are host-local.
 
-## Analytics and delivery
-
-GoatCounter uses same-origin `/stats/count` and `/stats/count.js`. The `/stats/`
-dashboard is behind homelab admin Google OAuth. GitHub Pages still deploys and
-hosts the static files; Caddy fronts the custom domain to route `/stats/*`
-locally and proxy the rest to GitHub Pages. Route source: homelab-maint,
-`stacks/goatcounter/routes.caddy`.
+`deploy/` holds the nightly NAS backup and its systemd units.

@@ -3,6 +3,7 @@
 .env
 data
 db
+deploy
 node_modules
-*.png
-index.html
+backup.sqlite3
+DEPLOYED_COMMIT

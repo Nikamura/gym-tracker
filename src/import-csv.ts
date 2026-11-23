@@ -7,7 +7,7 @@ const POOL = 'Kauno Žalgirio baseinas';
 
 // Safe to rerun: existing (club, timestamp) rows are left untouched. Each file
 // is its own transaction so a full history import stays small in memory.
-export function importCsvDir(store: Store, dir: string): { rows: number; skipped: number } {
+export function importCsvDir(store: Store, dir: string, untilTs = Infinity): { rows: number; skipped: number } {
   const { sqlite } = store;
   const upsertClub = sqlite.prepare<[string, string, string, string, string], { id: number }>(
     `INSERT INTO clubs (slug, name, city, address, source) VALUES (?, ?, ?, ?, ?)
@@ -28,6 +28,7 @@ export function importCsvDir(store: Store, dir: string): { rows: number; skipped
         skipped++;
         continue;
       }
+      if (ts >= untilTs) continue;
       const name = cleanClubName(club);
       const slug = slugify(name);
       let id = clubIds.get(slug);
@@ -51,7 +52,8 @@ export function importCsvDir(store: Store, dir: string): { rows: number; skipped
 if (import.meta.main) {
   const dir = process.argv[2] ?? 'data';
   const store = openStore(process.env.DB_PATH ?? 'db/gym-tracker.sqlite');
-  const result = importCsvDir(store, dir);
+  // Optional ISO cutoff, so the old workflow cannot add rows after the collector started.
+  const result = importCsvDir(store, dir, process.argv[3] ? Date.parse(process.argv[3]) / 1000 : Infinity);
   console.log(JSON.stringify({ ...result, ...store.counts(), maxRssMb: Math.round(process.resourceUsage().maxRSS / 1024) }));
   store.close();
 }

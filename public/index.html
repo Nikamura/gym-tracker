@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gym Tracker</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d0d0d">
+<meta name="description" content="See how busy gyms and pools in Lithuania are right now, and when to go">
+<meta property="og:title" content="Gym Tracker">
+<meta property="og:description" content="See how busy gyms and pools in Lithuania are right now, and when to go">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gym-tracker.cn.lt">
+<meta property="og:image" content="https://gym-tracker.cn.lt/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://gym-tracker.cn.lt/og.png">
+<meta name="twitter:title" content="Gym Tracker">
+<meta name="twitter:description" content="See how busy gyms and pools in Lithuania are right now, and when to go">
+<script>
+(function () {
+  var pref = 'system';
+  try { pref = localStorage.getItem('theme') || 'system'; } catch (e) {}
+  var theme = pref === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : pref;
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+</script>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --raised: #242422; --line: #2c2c2a; --line-strong: #41413d;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #989690;
+  --accent: #3987e5; --accent-soft: rgba(57,135,229,.16); --typical: #989690;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --h0: #16263a; --h1: #104281; --h2: #184f95; --h3: #256abf; --h4: #3987e5; --h5: #6da7ec; --h6: #9ec5f4; --h7: #cde2fb;
+  --h-dark-from: 5;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --raised: #f0efec; --line: #e1e0d9; --line-strong: #c9c8c0;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #6c6a65;
+  --accent: #2a78d6; --accent-soft: rgba(42,120,214,.11); --typical: #807e78;
+  --h0: #e6f0fc; --h1: #cde2fb; --h2: #9ec5f4; --h3: #6da7ec; --h4: #3987e5; --h5: #256abf; --h6: #184f95; --h7: #0d366b;
+  --h-dark-from: 4;
+}
+* { box-sizing: border-box; margin: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  min-height: 100dvh; background: var(--page); color: var(--ink);
+  font: 15px/1.45 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; touch-action: manipulation; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+.shell { max-width: 1240px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 32px max(16px, env(safe-area-inset-left)); }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; flex: none; font-size: 18px; font-weight: 680; letter-spacing: -.015em; white-space: nowrap; }
+.brand img { width: 26px; height: 26px; border-radius: 6px; }
+#updated { margin-left: auto; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+#updated i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+#updated.stale i { background: var(--critical); }
+.icon-btn { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--ink-2); flex: none; }
+@media (hover: hover) { .icon-btn:hover { background: var(--raised); color: var(--ink); } }
+
+#notice { display: none; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warning); border-radius: 8px; background: var(--surface); font-size: 14px; color: var(--ink-2); }
+
+.layout { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+
+.seg { display: flex; gap: 2px; padding: 3px; background: var(--raised); border-radius: 10px; }
+.seg button { flex: 1; min-height: 34px; padding: 4px 10px; border-radius: 7px; color: var(--ink-2); font-size: 13.5px; font-weight: 550; white-space: nowrap; transition: background-color .14s ease, color .14s ease; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.22); }
+
+#list-panel { overflow: hidden; }
+.list-head { padding: 10px; border-bottom: 1px solid var(--line); }
+#clubs { list-style: none; padding: 4px; max-height: calc(100dvh - 158px); overflow-y: auto; overscroll-behavior: contain; }
+.group-label { padding: 12px 10px 4px; color: var(--muted); font-size: 12px; font-weight: 620; }
+.row { display: flex; align-items: center; border-radius: 9px; transition: background-color .12s ease; }
+@media (hover: hover) { .row:hover { background: var(--raised); } }
+.row.selected { background: var(--accent-soft); }
+.star { width: 38px; height: 50px; display: grid; place-items: center; color: var(--muted); flex: none; }
+.star[aria-pressed="true"] { color: var(--warning); }
+.star svg { width: 16px; height: 16px; }
+.pick { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; padding: 7px 10px 7px 0; text-align: left; }
+.pick .name { font-weight: 570; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick .val { font-size: 17px; font-weight: 680; text-align: right; line-height: 1.2; }
+.pick .val.none { color: var(--muted); font-size: 13px; font-weight: 500; }
+.pick .sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meter { grid-column: 1 / -1; height: 4px; margin-top: 5px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.meter b { display: block; height: 100%; border-radius: 2px; transition: width .3s ease; }
+
+#detail { padding: 20px; min-width: 0; }
+#back { display: none; align-items: center; gap: 4px; min-height: 36px; margin: -6px 0 8px -6px; padding: 0 8px 0 2px; color: var(--ink-2); font-size: 14px; font-weight: 550; }
+.title h1 { font-size: clamp(22px, 3vw, 28px); line-height: 1.15; font-weight: 700; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.title p { color: var(--muted); font-size: 13.5px; margin-top: 3px; }
+.hero { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 26px; margin: 18px 0 20px; }
+.big { font-size: clamp(48px, 7vw, 64px); line-height: .95; font-weight: 720; letter-spacing: -.035em; }
+.big small { font-size: .42em; font-weight: 600; color: var(--ink-2); letter-spacing: -.01em; margin-left: 2px; }
+.big.none { font-size: 26px; line-height: 1.2; letter-spacing: -.015em; }
+.facts { display: flex; flex-direction: column; gap: 3px; padding-bottom: 2px; min-width: 0; }
+.status { display: inline-flex; align-items: center; gap: 7px; font-weight: 620; }
+.dot { width: 10px; height: 10px; flex: none; }
+.dot.l0 { background: var(--good); border-radius: 50%; }
+.dot.l1 { background: var(--warning); border-radius: 2px; }
+.dot.l2 { background: var(--serious); transform: rotate(45deg) scale(.85); border-radius: 1px; }
+.dot.l3 { background: var(--critical); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.dot.none { border: 2px solid var(--muted); border-radius: 50%; }
+.facts .cmp { color: var(--ink-2); font-size: 14px; }
+.best { margin-bottom: 24px; padding: 16px; border-radius: 12px; background: var(--accent-soft); }
+.best h2 { margin-bottom: 10px; }
+.chips { display: flex; gap: 6px; margin: 0 -16px 14px; padding: 0 16px; overflow-x: auto; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chips button { flex: none; min-height: 34px; padding: 4px 12px; border: 1px solid var(--line-strong); border-radius: 17px; background: var(--surface); color: var(--ink-2); font-size: 13.5px; font-weight: 550; }
+.chips button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.answer { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.answer .when { font-size: clamp(23px, 3.2vw, 29px); line-height: 1.15; font-weight: 720; letter-spacing: -.02em; }
+.answer .how { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 14px; }
+.verdict { margin-top: 6px; color: var(--ink-2); font-size: 14px; }
+.verdict strong { color: var(--ink); font-weight: 640; }
+.week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 14px; }
+.day { min-width: 0; padding: 8px 9px; border: 1px solid transparent; border-radius: 8px; background: var(--surface); }
+.day.top { border-color: var(--accent); }
+.day b { display: block; font-size: 12px; font-weight: 620; color: var(--ink-2); }
+.day span { display: block; font-size: 14px; font-weight: 650; white-space: nowrap; }
+.day small { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
+.day .dot { width: 8px; height: 8px; }
+
+section + section { margin-top: 26px; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; margin-bottom: 8px; }
+h2 { font-size: 15px; font-weight: 660; }
+.sec-head .seg { width: 210px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 4px; color: var(--ink-2); font-size: 12.5px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 18px; height: 0; border-top: 2px solid var(--accent); }
+.legend i.t { border-top: 2px dashed var(--typical); }
+.chart { position: relative; width: 100%; height: 250px; touch-action: pan-y; }
+.chart svg { display: block; width: 100%; height: 100%; }
+.chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.grid { stroke: var(--line); stroke-width: 1; }
+.ln { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ln.t { stroke: var(--typical); stroke-dasharray: 4 4; stroke-width: 1.6; }
+.area { fill: var(--accent); opacity: .09; }
+.pt { fill: var(--accent); }
+.cross { stroke: var(--line-strong); stroke-width: 1; }
+.hover-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.tooltip { position: absolute; z-index: 5; top: 4px; pointer-events: none; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raised); box-shadow: 0 4px 14px rgba(0,0,0,.25); font-size: 12.5px; white-space: nowrap; opacity: 0; transition: opacity .1s ease; }
+.tooltip.on { opacity: 1; }
+.tooltip b { font-weight: 660; }
+.tooltip div + div { color: var(--ink-2); }
+.empty { display: grid; place-items: center; height: 100%; color: var(--muted); font-size: 14px; text-align: center; }
+
+.heat-wrap { position: relative; }
+.heat { display: grid; grid-template-columns: 30px repeat(18, minmax(0, 1fr)); gap: 2px; }
+.heat .d { color: var(--muted); font-size: 11px; align-self: center; }
+.heat .h { color: var(--muted); font-size: 10.5px; height: 15px; overflow: visible; white-space: nowrap; }
+.cell { aspect-ratio: 1 / .72; min-height: 14px; border-radius: 3px; padding: 0; }
+.cell.nil { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.cell.now { position: relative; z-index: 1; outline: 2px solid var(--ink); outline-offset: 0; }
+.scale { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 9px; color: var(--muted); font-size: 11.5px; }
+.scale i { width: 15px; height: 9px; border-radius: 2px; margin-right: -4px; }
+.scale span:last-child { margin-left: 4px; }
+details { margin-top: 12px; color: var(--ink-2); font-size: 13px; }
+summary { cursor: pointer; min-height: 28px; }
+.table-wrap { overflow-x: auto; margin-top: 6px; }
+table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { padding: 3px 5px; border-bottom: 1px solid var(--line); text-align: right; font-weight: 450; }
+th { color: var(--muted); }
+.note { margin-top: 18px; color: var(--muted); font-size: 12.5px; }
+.skeleton { height: 54px; margin: 4px 6px; border-radius: 8px; background: var(--raised); animation: pulse 1.3s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .5; } }
+
+@media (max-width: 860px) {
+  .layout { display: block; }
+  #clubs { max-height: none; overflow: visible; }
+  body.has-club #list-panel { display: none; }
+  body:not(.has-club) #detail { display: none; }
+  #back { display: inline-flex; }
+  #detail { padding: 16px; }
+  .sec-head .seg { width: 100%; }
+  .chart { height: 220px; }
+  .star { width: 42px; height: 54px; }
+}
+@media (max-width: 480px) {
+  .heat { grid-template-columns: 28px repeat(18, minmax(0, 1fr)); gap: 2px; }
+  .cell { border-radius: 2px; }
+}
+@media (max-width: 1040px) {
+  .week { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .day { display: grid; grid-template-columns: 84px 56px minmax(0, 1fr); align-items: center; padding: 7px 10px; }
+  .day small { justify-content: flex-end; }
+}
+@media (max-width: 380px) {
+  #updated { font-size: 12px; }
+  .brand { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="brand"><img src="favicon.svg" alt=""><span>Gym Tracker</span></div>
+    <div id="updated" role="status"><i></i><span>Loading…</span></div>
+    <button class="icon-btn" id="theme" type="button"></button>
+  </header>
+  <div id="notice" role="alert"></div>
+  <main class="layout">
+    <aside class="panel" id="list-panel" aria-label="Clubs">
+      <div class="list-head"><div class="seg" id="cities" role="group" aria-label="Filter by city"></div></div>
+      <ul id="clubs"><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li></ul>
+    </aside>
+    <article class="panel" id="detail" aria-live="polite"></article>
+  </main>
+</div>
+
+<script>
+const TZ = 'Europe/Vilnius';
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const CITIES = [['all', 'All'], ['Vilniaus klubai', 'Vilnius'], ['Kauno klubai', 'Kaunas'], ['Šiaulių klubai', 'Šiauliai']];
+const LEVELS = [
+  { max: 35, label: 'Quiet', color: 'var(--good)' },
+  { max: 60, label: 'Moderate', color: 'var(--warning)' },
+  { max: 85, label: 'Busy', color: 'var(--serious)' },
+  { max: 101, label: 'Very busy', color: 'var(--critical)' },
+];
+const GAP_SECONDS = 75 * 60;
+const DAY_START_HOUR = 6;
+const VISIT_HOURS = 2;
+// A visit must start and finish inside the window, so nothing suggests 3am.
+const WINDOWS = [
+  { id: 'day', label: 'Daytime', from: 10, to: 21 },
+  { id: 'morning', label: 'Morning', from: 7, to: 11 },
+  { id: 'midday', label: 'Midday', from: 11, to: 16 },
+  { id: 'after', label: 'After work', from: 16, to: 20 },
+  { id: 'evening', label: 'Evening', from: 20, to: 23 },
+];
+const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="FILL" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m12 3 2.8 5.8 6.2.9-4.5 4.4 1.1 6.3L12 17.4 6.4 20.4l1.1-6.3L3 9.7l6.2-.9z"/></svg>';
+const THEME_ICONS = {
+  dark: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>',
+  light: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  system: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const store = {
+  get(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+  raw(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  setRaw(key, value) { try { localStorage.setItem(key, value); } catch {} },
+};
+const fmtTime = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const fmtDay = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' });
+const fmtWeekday = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short' });
+const fmtDate = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: 'numeric', month: 'short' });
+const fmtHour = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' });
+const time = (ts) => fmtTime.format(ts * 1000);
+const hh = (h) => String(h).padStart(2, '0') + ':00';
+const level = (pct) => LEVELS.find((l) => pct < l.max);
+const levelIndex = (pct) => LEVELS.indexOf(level(pct));
+
+const params = new URLSearchParams(location.search);
+const state = {
+  overview: null,
+  detail: null,
+  city: CITIES.some(([c]) => c === params.get('city')) ? params.get('city') : store.get('gym.city', 'all'),
+  slug: params.get('club'),
+  days: [1, 7, 30].includes(Number(params.get('days'))) ? Number(params.get('days')) : 1,
+  favourites: new Set(store.get('gym.favourites', [])),
+  window: WINDOWS.some((w) => w.id === store.get('gym.window', 'day')) ? store.get('gym.window', 'day') : 'day',
+  legacyClub: (params.get('clubs') || '').split(',')[0].replace(/\s+[-–—]\s+.*$/, '').replace(/\s*\([^)]*\)/, '').trim(),
+};
+let requestId = 0;
+
+function writeUrl() {
+  const p = new URLSearchParams();
+  if (state.city !== 'all') p.set('city', state.city);
+  if (state.slug) p.set('club', state.slug);
+  if (state.days !== 1) p.set('days', state.days);
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+}
+
+async function getJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+function themePref() { return store.raw('theme') || 'system'; }
+function applyTheme() {
+  const pref = themePref();
+  const theme = pref === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : pref;
+  document.documentElement.setAttribute('data-theme', theme);
+  document.querySelector('meta[name=theme-color]').content = theme === 'light' ? '#f9f9f7' : '#0d0d0d';
+  $('theme').innerHTML = THEME_ICONS[pref];
+  $('theme').setAttribute('aria-label', 'Theme: ' + pref + '. Switch theme');
+  $('theme').title = 'Theme: ' + pref;
+}
+$('theme').addEventListener('click', () => {
+  const order = ['dark', 'light', 'system'];
+  store.setRaw('theme', order[(order.indexOf(themePref()) + 1) % 3]);
+  applyTheme();
+});
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
+
+function comparison(club) {
+  if (club.state !== 'open' || club.pct === null || club.typical === null) return '';
+  const diff = club.pct - club.typical;
+  if (Math.abs(diff) < 5) return 'About usual';
+  return `${Math.abs(diff)} pts ${diff < 0 ? 'quieter' : 'busier'} than usual`;
+}
+const stateLabel = (club) => (club.state === 'closed' ? 'Closed or no reading' : 'No recent data');
+
+function renderCities() {
+  $('cities').innerHTML = CITIES.map(([id, label]) =>
+    `<button type="button" data-city="${esc(id)}" aria-pressed="${state.city === id}">${esc(label)}</button>`).join('');
+}
+
+function clubRow(c) {
+  const fav = state.favourites.has(c.slug);
+  const open = c.state === 'open' && c.pct !== null;
+  const lvl = open ? level(c.pct) : null;
+  const sub = open ? [lvl.label, comparison(c)].filter(Boolean).join(' · ') : stateLabel(c);
+  return `<li class="row${c.slug === state.slug ? ' selected' : ''}">
+    <button class="star" type="button" data-star="${esc(c.slug)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove' : 'Add'} ${esc(c.name)} ${fav ? 'from' : 'to'} favourites">${STAR.replace('FILL', fav ? 'currentColor' : 'none')}</button>
+    <button class="pick" type="button" data-club="${esc(c.slug)}"${c.slug === state.slug ? ' aria-current="true"' : ''}>
+      <span class="name">${esc(c.name)}</span>
+      <span class="val tnum${open ? '' : ' none'}">${open ? c.pct + '%' : '–'}</span>
+      <span class="sub" style="grid-column:1/-1">${esc(sub)}</span>
+      <span class="meter"><b style="width:${open ? c.pct : 0}%;background:${open ? lvl.color : 'transparent'}"></b></span>
+    </button></li>`;
+}
+
+function renderList() {
+  if (!state.overview) return;
+  const clubs = state.overview.clubs.filter((c) => state.city === 'all' || c.city === state.city);
+  const rank = (c) => (c.state === 'open' && c.pct !== null ? c.pct : 1000);
+  const sorted = [...clubs].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'lt'));
+  const favs = sorted.filter((c) => state.favourites.has(c.slug));
+  const rest = sorted.filter((c) => !state.favourites.has(c.slug));
+  let html = '';
+  if (favs.length) html += '<li class="group-label">Favourites</li>' + favs.map(clubRow).join('');
+  if (favs.length && rest.length) html += '<li class="group-label">All clubs, quietest first</li>';
+  else if (rest.length) html += '<li class="group-label">Quietest first</li>';
+  html += rest.map(clubRow).join('');
+  const scroll = $('clubs').scrollTop;
+  $('clubs').innerHTML = html;
+  $('clubs').scrollTop = scroll;
+}
+
+function renderUpdated() {
+  const o = state.overview;
+  const el = $('updated');
+  if (!o?.updated) { el.classList.add('stale'); el.lastElementChild.textContent = 'No data'; return; }
+  const minutes = Math.max(0, Math.round((Date.now() / 1000 - o.updated) / 60));
+  const stale = minutes >= 45;
+  el.classList.toggle('stale', stale);
+  el.lastElementChild.textContent = minutes < 1 ? 'Updated just now' : minutes < 90 ? `Updated ${minutes} min ago` : `Updated ${fmtDay.format(o.updated * 1000)}, ${time(o.updated)}`;
+  $('notice').style.display = stale ? 'block' : 'none';
+  $('notice').textContent = stale ? 'Live updates are delayed. Figures below may be out of date.' : '';
+}
+
+function bestSlot(day, win, earliest = 0) {
+  let best = null;
+  for (let h = Math.max(win.from, earliest); h + VISIT_HOURS <= win.to; h++) {
+    const values = day.slice(h, h + VISIT_HOURS);
+    if (values.some((v) => v === null || v === undefined)) continue;
+    const pct = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+    if (!best || pct < best.pct) best = { hour: h, pct };
+  }
+  return best;
+}
+
+function plan(d) {
+  const win = WINDOWS.find((w) => w.id === state.window) || WINDOWS[0];
+  const [hour, minute] = time(d.now).split(':').map(Number);
+  const earliest = minute <= 15 ? hour : hour + 1;
+  const days = Array.from({ length: 7 }, (_, offset) => {
+    const dow = (d.dow + offset) % 7;
+    return {
+      offset, dow,
+      label: offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : DAYS[dow],
+      slot: bestSlot(d.typical[dow] || [], win, offset === 0 ? earliest : 0),
+    };
+  });
+  const usable = days.filter((x) => x.slot);
+  const next = usable[0] || null;
+  const top = usable.reduce((a, b) => (!a || b.slot.pct < a.slot.pct ? b : a), null);
+  return { win, days, next, top };
+}
+
+const slotText = (slot) => `${hh(slot.hour)}–${hh(slot.hour + VISIT_HOURS)}`;
+
+function bestCard(d, club, open) {
+  const { win, days, next, top } = plan(d);
+  const chips = WINDOWS.map((w) => `<button type="button" data-window="${w.id}" aria-pressed="${w.id === win.id}">${esc(w.label)}</button>`).join('');
+  if (!next) {
+    return `<div class="best"><h2>Best time to go</h2><div class="chips" role="group" aria-label="When can you go?">${chips}</div><p class="verdict">Not enough history for this time of day yet.</p></div>`;
+  }
+  let verdict = '';
+  const hourNow = Number(time(d.now).split(':')[0]);
+  if (next.offset === 0 && open && hourNow >= win.from && hourNow < win.to) {
+    if (club.pct <= next.slot.pct + 5 || club.pct < LEVELS[0].max) verdict = `<strong>Good time to go now</strong>, it is ${esc(level(club.pct).label.toLowerCase())} at ${club.pct}%.`;
+    else verdict = `<strong>Worth waiting if you can.</strong> It is ${club.pct}% now.`;
+  }
+  const extra = top && top !== next ? `<p class="verdict">Quietest this week: <strong>${esc(DAY_NAMES[top.dow])} ${slotText(top.slot)}</strong>, about ${top.slot.pct}%.</p>` : '';
+  const week = days.map((x) => x.slot
+    ? `<div class="day${x === top ? ' top' : ''}"><b>${esc(x.label)}</b><span class="tnum">${hh(x.slot.hour)}</span><small class="tnum"><i class="dot l${levelIndex(x.slot.pct)}"></i>${x.slot.pct}% ${esc(level(x.slot.pct).label)}</small></div>`
+    : `<div class="day"><b>${esc(x.label)}</b><span>–</span><small>${x.offset === 0 ? 'Passed' : 'No data'}</small></div>`).join('');
+  return `<div class="best">
+    <h2>Best time to go</h2>
+    <div class="chips" role="group" aria-label="When can you go?">${chips}</div>
+    <div class="answer">
+      <span class="when tnum">${esc(next.label)} ${slotText(next.slot)}</span>
+      <span class="how tnum"><i class="dot l${levelIndex(next.slot.pct)}"></i>Usually ${next.slot.pct}%, ${esc(level(next.slot.pct).label.toLowerCase())}</span>
+    </div>
+    ${verdict ? `<p class="verdict">${verdict}</p>` : ''}${extra}
+    <div class="week" aria-label="Best start time for each of the next 7 days">${week}</div>
+  </div>`;
+}
+
+function renderDetail() {
+  const el = $('detail');
+  document.body.classList.toggle('has-club', !!state.slug);
+  if (!state.slug || !state.detail || state.detail.club.slug !== state.slug) {
+    if (state.slug && !state.detailError) el.innerHTML = '<div class="skeleton" style="height:34px;width:55%"></div><div class="skeleton" style="height:90px;margin-top:18px"></div><div class="skeleton" style="height:240px;margin-top:18px"></div>';
+    else if (state.detailError) el.innerHTML = '<button id="back" type="button">‹ All clubs</button><div class="empty" style="height:240px">Could not load this club. It will retry shortly.</div>';
+    else el.innerHTML = '<div class="empty" style="height:320px">Choose a club to see today and its usual pattern.</div>';
+    return;
+  }
+  const d = state.detail;
+  const c = state.overview?.clubs.find((x) => x.slug === d.club.slug) || { state: 'stale', pct: null, typical: null };
+  const open = c.state === 'open' && c.pct !== null;
+  const lvl = open ? level(c.pct) : null;
+  const cmp = comparison(c);
+  const seen = c.ts ? `Reading from ${time(c.ts)}` : '';
+  el.innerHTML = `
+    <button id="back" type="button">‹ All clubs</button>
+    <div class="title"><h1>${esc(d.club.name)}</h1><p>${esc(d.club.address)}</p></div>
+    <div class="hero">
+      <div class="big tnum${open ? '' : ' none'}">${open ? `${c.pct}<small>%</small>` : esc(stateLabel(c))}</div>
+      <div class="facts">
+        ${open ? `<span class="status"><i class="dot l${levelIndex(c.pct)}"></i>${esc(lvl.label)}</span>` : '<span class="status"><i class="dot none"></i>Not available</span>'}
+        <span class="cmp">${esc([cmp, seen].filter(Boolean).join(' · '))}</span>
+      </div>
+    </div>
+    ${bestCard(d, c, open)}
+    <section>
+      <div class="sec-head">
+        <h2>${state.days === 1 ? 'Today' : `Last ${state.days} days`}</h2>
+        <div class="seg" id="ranges" role="group" aria-label="Time range">
+          ${[[1, 'Today'], [7, '7 days'], [30, '30 days']].map(([v, l]) => `<button type="button" data-days="${v}" aria-pressed="${state.days === v}">${l}</button>`).join('')}
+        </div>
+      </div>
+      ${state.days === 1 ? '<div class="legend"><span><i></i>Today</span><span><i class="t"></i>Usual for ' + DAY_NAMES[d.dow] + '</span></div>' : ''}
+      <div class="chart" id="line" role="img" aria-label="${esc(chartSummary(d))}"></div>
+    </section>
+    <section>
+      <div class="sec-head"><h2>Usual week</h2></div>
+      <div class="heat-wrap" id="heat-wrap">${heatmap(d)}<div class="tooltip" id="heat-tip"></div></div>
+      <div class="scale"><span>Quiet</span>${[1, 2, 3, 4, 5, 6, 7].map((n) => `<i style="background:var(--h${n})"></i>`).join('')}<span>Busy</span></div>
+      <details><summary>View as table</summary><div class="table-wrap">${typicalTable(d)}</div></details>
+    </section>
+    <p class="note">Based on the median of the last 6 months, Lithuanian time. Best times assume a 2-hour visit. A reading of 100% is shown as full only when the club was already busy, because the source also reports 100% when a club is closed.</p>`;
+  drawLine();
+}
+
+function chartSummary(d) {
+  const known = d.points.filter((p) => p[1] !== null);
+  if (!known.length) return 'No readings in this period.';
+  const values = known.map((p) => p[1]);
+  return `${known.length} readings, from ${Math.min(...values)}% to ${Math.max(...values)}%.`;
+}
+
+function heatColor(v) {
+  return `var(--h${Math.max(1, Math.min(7, Math.ceil(v / (100 / 7))))})`;
+}
+
+function heatmap(d) {
+  const nowHour = Number(fmtHour.format(d.now * 1000)) % 24;
+  let html = '<div class="heat" id="heat"><span></span>';
+  for (let h = DAY_START_HOUR; h < 24; h++) html += `<span class="h">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`;
+  d.typical.forEach((day, dow) => {
+    html += `<span class="d">${DAYS[dow]}</span>`;
+    day.forEach((v, h) => {
+      if (h < DAY_START_HOUR) return;
+      const label = `${DAY_NAMES[dow]} ${hh(h)}: ${v === null ? 'not enough data' : 'usually ' + v + '%'}`;
+      const now = dow === d.dow && h === nowHour ? ' now' : '';
+      html += v === null
+        ? `<button type="button" class="cell nil${now}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`
+        : `<button type="button" class="cell${now}" style="background:${heatColor(v)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`;
+    });
+  });
+  return html + '</div>';
+}
+
+function typicalTable(d) {
+  const head = Array.from({ length: 24 - DAY_START_HOUR }, (_, i) => `<th scope="col">${String(i + DAY_START_HOUR).padStart(2, '0')}</th>`).join('');
+  const rows = d.typical.map((day, i) => `<tr><th scope="row">${DAYS[i]}</th>${day.slice(DAY_START_HOUR).map((v) => `<td>${v ?? '–'}</td>`).join('')}</tr>`).join('');
+  return `<table><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function drawLine() {
+  const host = $('line');
+  const d = state.detail;
+  if (!host || !d) return;
+  const W = Math.max(280, host.clientWidth), H = host.clientHeight || 250;
+  const m = { t: 10, r: 10, b: 24, l: 34 };
+  const from = d.days === 1 ? d.dayStart + DAY_START_HOUR * 3600 : d.now - d.days * 86400;
+  const to = d.days === 1 ? d.dayStart + 86400 : d.now;
+  const x = (ts) => m.l + ((ts - from) / (to - from)) * (W - m.l - m.r);
+  const y = (v) => m.t + (1 - v / 100) * (H - m.t - m.b);
+  const visible = d.points.filter((p) => p[0] >= from);
+  const points = visible.filter((p) => p[1] !== null);
+  const f = (n) => n.toFixed(1);
+
+  const segments = [];
+  let current = [];
+  for (let i = 0; i < visible.length; i++) {
+    const p = visible[i], prev = visible[i - 1];
+    if (p[1] === null || (prev && p[0] - prev[0] > GAP_SECONDS)) {
+      if (current.length) segments.push(current);
+      current = [];
+    }
+    if (p[1] !== null) current.push(p);
+  }
+  if (current.length) segments.push(current);
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`;
+  for (const v of [0, 25, 50, 75, 100]) {
+    s += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${f(y(v))}" y2="${f(y(v))}"/><text x="${m.l - 7}" y="${f(y(v) + 3.5)}" text-anchor="end">${v}</text>`;
+  }
+  const ticks = [];
+  if (d.days === 1) for (let h = DAY_START_HOUR; h <= 24; h += W < 460 ? 6 : 3) ticks.push([d.dayStart + h * 3600, h === 24 ? '' : String(h).padStart(2, '0')]);
+  else {
+    const step = d.days === 7 ? 86400 : (W < 460 ? 10 : 5) * 86400;
+    for (let t = to; t > from + step * 0.35; t -= step) ticks.push([t, d.days === 7 ? fmtWeekday.format(t * 1000) : fmtDate.format(t * 1000)]);
+  }
+  for (const [t, label] of ticks) {
+    const px = x(t);
+    if (label) s += `<text x="${f(Math.min(W - m.r - 12, Math.max(m.l + 8, px)))}" y="${H - 6}" text-anchor="middle">${esc(label)}</text>`;
+  }
+  if (d.days === 1) {
+    const day = d.typical[d.dow] || [];
+    let path = '', pen = false;
+    day.forEach((v, h) => {
+      if (h < DAY_START_HOUR) return;
+      if (v === null) { pen = false; return; }
+      path += `${pen ? 'L' : 'M'}${f(x(d.dayStart + (h + .5) * 3600))} ${f(y(v))}`;
+      pen = true;
+    });
+    if (path) s += `<path class="ln t" d="${path}"/>`;
+  }
+  for (const seg of segments) {
+    if (seg.length === 1) { s += `<circle class="pt" cx="${f(x(seg[0][0]))}" cy="${f(y(seg[0][1]))}" r="2.5"/>`; continue; }
+    const line = seg.map((p, i) => `${i ? 'L' : 'M'}${f(x(p[0]))} ${f(y(p[1]))}`).join('');
+    s += `<path class="area" d="${line}L${f(x(seg.at(-1)[0]))} ${f(y(0))}L${f(x(seg[0][0]))} ${f(y(0))}Z"/><path class="ln" d="${line}"/>`;
+  }
+  s += `<line class="cross" id="cross" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/><circle class="hover-dot" id="hover-dot" r="4.5" visibility="hidden"/></svg><div class="tooltip" id="line-tip"></div>`;
+  host.innerHTML = points.length ? s : '<div class="empty">No readings in this period yet.</div>';
+  if (!points.length) return;
+
+  const cross = host.querySelector('#cross'), dot = host.querySelector('#hover-dot'), tip = host.querySelector('#line-tip');
+  const hide = () => { cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); tip.classList.remove('on'); };
+  const move = (event) => {
+    const rect = host.getBoundingClientRect();
+    const px = ((event.clientX - rect.left) / rect.width) * W;
+    let nearest = points[0], bestDist = Infinity;
+    for (const p of points) { const dist = Math.abs(x(p[0]) - px); if (dist < bestDist) { bestDist = dist; nearest = p; } }
+    if (bestDist > Math.max(36, W / 12)) return hide();
+    const cx = x(nearest[0]);
+    cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+    dot.setAttribute('cx', cx); dot.setAttribute('cy', y(nearest[1])); dot.setAttribute('visibility', 'visible');
+    tip.innerHTML = `<div><b class="tnum">${nearest[1]}%</b> ${esc(level(nearest[1]).label)}</div><div>${esc(fmtDay.format(nearest[0] * 1000))}, ${time(nearest[0])}</div>`;
+    tip.classList.add('on');
+    const left = (cx / W) * rect.width;
+    tip.style.left = Math.max(0, Math.min(rect.width - tip.offsetWidth, left + (left > rect.width / 2 ? -tip.offsetWidth - 10 : 10))) + 'px';
+  };
+  host.onpointermove = move;
+  host.onpointerdown = move;
+  host.onpointerleave = hide;
+}
+
+document.addEventListener('pointerover', (event) => showHeatTip(event.target));
+document.addEventListener('click', (event) => {
+  const t = event.target.closest('button');
+  if (!t) { hideHeatTip(); return; }
+  if (t.dataset.tip) { showHeatTip(t); return; }
+  hideHeatTip();
+  if (t.dataset.city) {
+    state.city = t.dataset.city;
+    store.set('gym.city', state.city);
+    renderCities(); renderList(); writeUrl();
+  } else if (t.dataset.star) {
+    const slug = t.dataset.star;
+    state.favourites.has(slug) ? state.favourites.delete(slug) : state.favourites.add(slug);
+    store.set('gym.favourites', [...state.favourites]);
+    renderList();
+  } else if (t.dataset.club) {
+    selectClub(t.dataset.club, true);
+  } else if (t.dataset.window) {
+    state.window = t.dataset.window;
+    store.set('gym.window', state.window);
+    renderDetail();
+  } else if (t.dataset.days) {
+    state.days = Number(t.dataset.days);
+    writeUrl();
+    loadDetail();
+  } else if (t.id === 'back') {
+    state.slug = null; state.detail = null; state.detailError = false;
+    writeUrl(); renderList(); renderDetail();
+    scrollTo(0, 0);
+  }
+});
+
+function showHeatTip(target) {
+  const cell = target.closest?.('.cell');
+  const tip = $('heat-tip');
+  if (!tip) return;
+  if (!cell) { tip.classList.remove('on'); return; }
+  const wrap = $('heat-wrap').getBoundingClientRect(), r = cell.getBoundingClientRect();
+  tip.textContent = cell.dataset.tip;
+  tip.classList.add('on');
+  tip.style.left = Math.max(0, Math.min(wrap.width - tip.offsetWidth, r.left - wrap.left + r.width / 2 - tip.offsetWidth / 2)) + 'px';
+  tip.style.top = Math.max(0, r.top - wrap.top - tip.offsetHeight - 5) + 'px';
+}
+function hideHeatTip() { $('heat-tip')?.classList.remove('on'); }
+
+function selectClub(slug, userAction) {
+  state.slug = slug;
+  state.detail = null;
+  state.detailError = false;
+  writeUrl(); renderList(); renderDetail(); loadDetail();
+  if (userAction && matchMedia('(max-width: 860px)').matches) scrollTo(0, 0);
+}
+
+async function loadDetail() {
+  if (!state.slug) return;
+  const id = ++requestId;
+  try {
+    const data = await getJson(`/api/clubs/${encodeURIComponent(state.slug)}?days=${state.days}`);
+    if (id !== requestId) return;
+    state.detail = data;
+    state.detailError = false;
+  } catch {
+    if (id !== requestId) return;
+    if (!state.detail) state.detailError = true;
+  }
+  renderDetail();
+}
+
+async function refresh() {
+  try {
+    state.overview = await getJson('/api/overview');
+    if (state.legacyClub) {
+      const match = state.overview.clubs.find((c) => c.name === state.legacyClub);
+      state.legacyClub = '';
+      if (match && !state.slug) state.slug = match.slug;
+    }
+    if (state.slug && !state.overview.clubs.some((c) => c.slug === state.slug)) state.slug = null;
+    if (!state.slug && matchMedia('(min-width: 861px)').matches) {
+      const favourite = state.overview.clubs.find((c) => state.favourites.has(c.slug));
+      state.slug = (favourite || state.overview.clubs.find((c) => c.state === 'open') || state.overview.clubs[0])?.slug ?? null;
+    }
+    renderList(); renderUpdated(); writeUrl();
+    await loadDetail();
+    if (!state.slug) renderDetail();
+  } catch {
+    if (!state.overview) $('clubs').innerHTML = '<li class="empty" style="height:180px">Could not load clubs. Retrying…</li>';
+    $('notice').style.display = 'block';
+    $('notice').textContent = 'Could not reach the server. Showing the last loaded data.';
+  }
+}
+
+let resizeTimer;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawLine, 120); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
+setInterval(renderUpdated, 30_000);
+
+applyTheme();
+renderCities();
+refresh();
+</script>
+<script data-goatcounter="/stats/count" async src="/stats/count.js"></script>
+</body>
+</html>

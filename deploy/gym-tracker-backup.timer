@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly Gym Tracker backup
+
+[Timer]
+OnCalendar=*-*-* 03:45:00 Europe/Vilnius
+Persistent=true
+
+[Install]
+WantedBy=timers.target
