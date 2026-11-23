@@ -502,8 +502,9 @@ function chartSummary(d) {
 }
 
 // Continuous scale: every percentage has its own color, the same at every club.
-const HEAT_SCALE = [[0,"#c4e3ff"],[10,"#74b6f5"],[20,"#2f83e4"],[30,"#2c58cc"],[40,"#7440c4"],[50,"#b8328f"],[60,"#cf2a44"],[75,"#a5121d"]];
-const HEAT_DARK_TEXT_BELOW = 24;
+const HEAT_SCALE = [[0,"#bdeec4"],[12,"#62d07a"],[25,"#23a955"],[35,"#9ccc3c"],[45,"#f5c827"],[55,"#f48f2c"],[65,"#df3f38"],[80,"#a5121d"]];
+// Text color with the higher contrast on each part of the scale.
+const HEAT_WHITE_TEXT = [[66,100]];
 function heatStyle(v) {
   const top = HEAT_SCALE.at(-1);
   const clamped = Math.min(v, top[0]);
@@ -511,7 +512,7 @@ function heatStyle(v) {
   const [from, low] = HEAT_SCALE[upper - 1];
   const [to, high] = HEAT_SCALE[upper];
   const mix = Math.round(((clamped - from) / (to - from)) * 100);
-  const ink = v < HEAT_DARK_TEXT_BELOW ? '#0b0b0b' : '#ffffff';
+  const ink = HEAT_WHITE_TEXT.some(([a, b]) => v >= a && v <= b) ? '#ffffff' : '#0b0b0b';
   return `background:color-mix(in oklch, ${high} ${mix}%, ${low});color:${ink}`;
 }
 function heatLegend() {
