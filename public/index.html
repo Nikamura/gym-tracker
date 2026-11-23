@@ -36,16 +36,16 @@
   --ink: #f0efec; --ink-2: #c3c2b7; --muted: #989690;
   --accent: #3987e5; --accent-soft: rgba(57,135,229,.16); --typical: #989690;
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
-  --h0: #16263a; --h1: #104281; --h2: #184f95; --h3: #256abf; --h4: #3987e5; --h5: #6da7ec; --h6: #9ec5f4; --h7: #cde2fb;
-  --h-dark-from: 5;
+  --heat-0: #86b6ef; --heat-1: #3987e5; --heat-2: #1c5cab; --heat-3: #1d3f66; --heat-4: #383835;
+  --heat-5: #6b2b2b; --heat-6: #a33a3a; --heat-7: #d9504f; --heat-8: #f08a84;
 }
 :root[data-theme="light"] {
   color-scheme: light;
   --page: #f9f9f7; --surface: #fcfcfb; --raised: #f0efec; --line: #e1e0d9; --line-strong: #c9c8c0;
   --ink: #0b0b0b; --ink-2: #52514e; --muted: #6c6a65;
   --accent: #2a78d6; --accent-soft: rgba(42,120,214,.11); --typical: #807e78;
-  --h0: #e6f0fc; --h1: #cde2fb; --h2: #9ec5f4; --h3: #6da7ec; --h4: #3987e5; --h5: #256abf; --h6: #184f95; --h7: #0d366b;
-  --h-dark-from: 4;
+  --heat-0: #184f95; --heat-1: #2a78d6; --heat-2: #86b6ef; --heat-3: #cde2fb; --heat-4: #f0efec;
+  --heat-5: #f6cfca; --heat-6: #ee9e96; --heat-7: #e34948; --heat-8: #a82a2b;
 }
 * { box-sizing: border-box; margin: 0; }
 html { -webkit-text-size-adjust: 100%; }
@@ -467,7 +467,7 @@ function renderDetail() {
     <section>
       <div class="sec-head"><h2>Usual week</h2></div>
       <div class="heat-wrap" id="heat-wrap">${heatmap(d)}<div class="tooltip" id="heat-tip"></div></div>
-      <div class="scale"><span>Quiet</span>${[1, 2, 3, 4, 5, 6, 7].map((n) => `<i style="background:var(--h${n})"></i>`).join('')}<span>Busy</span></div>
+      <div class="scale"><span>Quiet</span>${HEAT_STOPS.concat(101).map((_, n) => `<i style="background:var(--heat-${n})"></i>`).join('')}<span>Busy</span></div>
       <details><summary>View as table</summary><div class="table-wrap">${typicalTable(d)}</div></details>
     </section>
     <p class="note">Based on the median of the last 6 months, Lithuanian time. Best times assume a 2-hour visit. A reading of 100% is shown as full only when the club was already busy, because the source also reports 100% when a club is closed.</p>`;
@@ -481,8 +481,11 @@ function chartSummary(d) {
   return `${known.length} readings, from ${Math.min(...values)}% to ${Math.max(...values)}%.`;
 }
 
+// Diverges around 35%, where a club stops counting as quiet.
+const HEAT_STOPS = [8, 16, 24, 31, 40, 50, 62, 78];
 function heatColor(v) {
-  return `var(--h${Math.max(1, Math.min(7, Math.ceil(v / (100 / 7))))})`;
+  const step = HEAT_STOPS.findIndex((stop) => v < stop);
+  return `var(--heat-${step === -1 ? HEAT_STOPS.length : step})`;
 }
 
 function heatmap(d) {
