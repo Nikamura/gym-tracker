@@ -1,0 +1,23 @@
+services:
+  gym-tracker:
+    build: .
+    image: gym-tracker:local
+    container_name: gym-tracker
+    restart: unless-stopped
+    env_file: .env # PROXY_URL, host-local and ignored by git
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    volumes:
+      - ./db:/db
+    networks:
+      - vpn_clients
+
+networks:
+  vpn_clients:
+    external: true

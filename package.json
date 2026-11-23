@@ -1,0 +1,23 @@
+{
+  "name": "gym-tracker",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.21.0",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node src/main.ts",
+    "import:csv": "node src/import-csv.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.2.0",
+    "drizzle-orm": "0.45.4",
+    "undici": "8.13.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "^24",
+    "typescript": "7.0.2"
+  }
+}

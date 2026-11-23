@@ -1,0 +1,102 @@
+import { createServer } from 'node:http';
+import { ProxyAgent, fetch } from 'undici';
+import { HttpError, runSource, type Fetcher } from './collector.ts';
+import { openStore } from './db.ts';
+import { applyRetention } from './retention.ts';
+import { SOURCES } from './sources.ts';
+
+const INTERVAL_MS = 15 * 60_000;
+const MAX_JITTER_MS = 90_000;
+const STALE_SECONDS = 45 * 60;
+const RETENTION_INTERVAL_MS = 24 * 3600_000;
+
+// Fail closed: without a proxy the collector refuses to run, so requests can
+// never leave from the home IP.
+const proxyUrl = process.env.PROXY_URL;
+if (!proxyUrl) {
+  console.error('PROXY_URL is required');
+  process.exit(1);
+}
+const dispatcher = new ProxyAgent(proxyUrl);
+
+const fetcher: Fetcher = async (source) => {
+  const res = await fetch(source.url, {
+    ...source.init,
+    headers: { 'User-Agent': 'Mozilla/5.0', ...source.init?.headers },
+    dispatcher,
+    redirect: 'error',
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new HttpError(res.status);
+  return res.text();
+};
+
+const store = openStore(process.env.DB_PATH ?? 'db/gym-tracker.sqlite');
+const log = (event: Record<string, unknown>) =>
+  console.log(JSON.stringify({ at: new Date().toISOString(), ...event }));
+
+async function collect() {
+  for (const source of SOURCES) {
+    const result = await runSource(store, source, fetcher);
+    log({ source: source.id, result, error: store.getStatus(source.id)?.lastError ?? undefined });
+  }
+}
+
+function retain() {
+  try {
+    log({ retention: applyRetention(store) });
+  } catch (error) {
+    log({ retentionError: error instanceof Error ? error.name : 'Unknown' });
+  }
+}
+
+const server = createServer((req, res) => {
+  if (req.url !== '/healthz') {
+    res.writeHead(404).end();
+    return;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const statuses = store.allStatuses();
+  const lemon = statuses.find((s) => s.source === 'lemongym');
+  const healthy = !!lemon?.lastOk && now - lemon.lastOk < STALE_SECONDS;
+  res.writeHead(healthy ? 200 : 503, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ healthy, ...store.counts(), sources: statuses }));
+});
+server.listen(8080);
+
+let stopping = false;
+let wake: (() => void) | undefined;
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    stopping = true;
+    wake?.();
+  });
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    wake = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+  });
+}
+
+retain();
+let lastRetention = Date.now();
+await collect();
+while (!stopping) {
+  const nextSlot = Math.ceil((Date.now() + 1) / INTERVAL_MS) * INTERVAL_MS;
+  await wait(nextSlot - Date.now() + Math.random() * MAX_JITTER_MS);
+  if (stopping) break;
+  await collect();
+  if (Date.now() - lastRetention >= RETENTION_INTERVAL_MS) {
+    retain();
+    lastRetention = Date.now();
+  }
+}
+
+server.close();
+await dispatcher.close();
+store.close();
