@@ -174,6 +174,7 @@ export function createReader(store: Store) {
         name: club.name,
         city: club.city,
         address: club.address,
+        source: club.source,
         state,
         pct: state === 'open' ? pct : null,
         ts: last?.[0] ?? null,
@@ -196,7 +197,7 @@ export function createReader(store: Store) {
       days,
       dayStart,
       dow: at.dow,
-      club: { slug: row.slug, name: row.name, city: row.city, address: row.address },
+      club: { slug: row.slug, name: row.name, city: row.city, address: row.address, source: row.source },
       points,
       typical: typicalFor(row.id, now),
     };

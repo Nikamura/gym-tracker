@@ -86,7 +86,13 @@ header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .star[aria-pressed="true"] { color: var(--warning); }
 .star svg { width: 16px; height: 16px; }
 .pick { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: center; padding: 7px 10px 7px 0; text-align: left; }
-.pick .name { font-weight: 570; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick .name { display: flex; align-items: center; gap: 7px; min-width: 0; font-weight: 570; }
+.pick .name > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.op { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 6px; }
+.op svg { width: 15px; height: 15px; display: block; }
+.op.lemon { background: #fff4c2; color: #eeb600; }
+.op.pool { background: #1f7fc4; color: #fff; }
+.operator { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 7px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
 .pick .val { font-size: 17px; font-weight: 680; text-align: right; line-height: 1.2; }
 .pick .val.none { color: var(--muted); font-size: 13px; font-weight: 500; }
 .pick .sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -249,6 +255,21 @@ const THEME_ICONS = {
   system: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
 };
 
+const OPERATORS = {
+  lemongym: {
+    name: 'Lemon Gym', cls: 'lemon',
+    icon: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.6 4.4c.5 1 .4 2 .1 2.8 1.4 2.6.9 6.3-1.7 8.9s-6.3 3.1-8.9 1.7c-.8.3-1.8.4-2.8-.1-.3 0-.6-.3-.6-.6-.5-1-.4-2-.1-2.8C4.2 11.700 4.700 8 7.300 5.400s6.300-3.100 8.900-1.700c.8-.3 1.800-.4 2.800.1.300 0 .6.300.6.600Z"/><path fill="#2f8f3a" d="M16.500 3.200c1.300-1.900 3.600-2.700 6-2.200-.3 2.500-2 4.300-4.400 4.700-.2-1-.8-1.900-1.600-2.500Z"/></svg>',
+  },
+  'zalgirio-baseinas': {
+    name: 'Žalgirio baseinas', cls: 'pool',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M3 9c2.200-2 3.800-2 6 0s3.800 2 6 0 3.800-2 6 0M3 16c2.200-2 3.800-2 6 0s3.800 2 6 0 3.800-2 6 0"/></svg>',
+  },
+};
+const operatorIcon = (source) => {
+  const op = OPERATORS[source];
+  return op ? `<span class="op ${op.cls}" role="img" aria-label="${esc(op.name)}" title="${esc(op.name)}">${op.icon}</span>` : '';
+};
+
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = {
@@ -333,7 +354,7 @@ function clubRow(c) {
   return `<li class="row${c.slug === state.slug ? ' selected' : ''}">
     <button class="star" type="button" data-star="${esc(c.slug)}" aria-pressed="${fav}" aria-label="${fav ? 'Remove' : 'Add'} ${esc(c.name)} ${fav ? 'from' : 'to'} favourites">${STAR.replace('FILL', fav ? 'currentColor' : 'none')}</button>
     <button class="pick" type="button" data-club="${esc(c.slug)}"${c.slug === state.slug ? ' aria-current="true"' : ''}>
-      <span class="name">${esc(c.name)}</span>
+      <span class="name">${operatorIcon(c.source)}<span>${esc(c.name)}</span></span>
       <span class="val tnum${open ? '' : ' none'}">${open ? c.pct + '%' : '–'}</span>
       <span class="sub" style="grid-column:1/-1">${esc(sub)}</span>
       <span class="meter"><b style="width:${open ? c.pct : 0}%;background:${open ? lvl.color : 'transparent'}"></b></span>
@@ -445,7 +466,7 @@ function renderDetail() {
   const seen = c.ts ? `Reading from ${time(c.ts)}` : '';
   el.innerHTML = `
     <button id="back" type="button">‹ All clubs</button>
-    <div class="title"><h1>${esc(d.club.name)}</h1><p>${esc(d.club.address)}</p></div>
+    <div class="title">${OPERATORS[d.club.source] ? `<div class="operator">${operatorIcon(d.club.source)}${esc(OPERATORS[d.club.source].name)}</div>` : ''}<h1>${esc(d.club.name)}</h1><p>${esc(d.club.address)}</p></div>
     <div class="hero">
       <div class="big tnum${open ? '' : ' none'}">${open ? `${c.pct}<small>%</small>` : esc(stateLabel(c))}</div>
       <div class="facts">

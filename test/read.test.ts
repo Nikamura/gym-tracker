@@ -53,8 +53,9 @@ test('API serves data, hides nothing sensitive, and rejects bad input', async ()
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
-    const overview = (await (await fetch(`${base}/api/overview`)).json()) as { clubs: { state: string; pct: number }[] };
+    const overview = (await (await fetch(`${base}/api/overview`)).json()) as { clubs: { state: string; pct: number; source: string }[] };
     assert.equal(overview.clubs[0]?.state, 'open');
+    assert.equal(overview.clubs[0]?.source, 'lemongym');
     assert.equal(overview.clubs[0]?.pct, 42);
     const detail = (await (await fetch(`${base}/api/clubs/pikas?days=7`)).json()) as { points: Point[] };
     assert.deepEqual(detail.points, [[now - 60, 42]]);
