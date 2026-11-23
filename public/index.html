@@ -471,7 +471,7 @@ function renderDetail() {
       <div class="chart" id="line" role="img" aria-label="${esc(chartSummary(d))}"></div>
     </section>
     <section>
-      <div class="sec-head"><h2>Usual week</h2><span class="unit">% full</span></div>
+      <div class="sec-head"><h2>Usual week</h2><span class="unit">% full at each day's low and peak, 10:00–21:00</span></div>
       <div class="heat-wrap" id="heat-wrap">${heatmap(d)}<div class="tooltip" id="heat-tip"></div></div>
       <div class="scale"><span>Quiet</span>${HEAT_STOPS.concat(101).map((_, n) => `<i style="background:var(--heat-${n})"></i>`).join('')}<span>Busy</span></div>
       <details><summary>View as table</summary><div class="table-wrap">${typicalTable(d)}</div></details>
@@ -495,19 +495,32 @@ function heatStyle(v) {
   return `background:var(--heat-${step});color:var(--heat-ink-${step})`;
 }
 
+// Labels each day's quietest and busiest realistic hour.
+function dayMarks(day) {
+  let low = null, high = null;
+  for (let h = WINDOWS[0].from; h < WINDOWS[0].to; h++) {
+    const v = day[h];
+    if (v === null || v === undefined) continue;
+    if (low === null || v < day[low]) low = h;
+    if (high === null || v > day[high]) high = h;
+  }
+  return new Set([low, high].filter((h) => h !== null));
+}
+
 function heatmap(d) {
   const nowHour = Number(fmtHour.format(d.now * 1000)) % 24;
   let html = '<div class="heat" id="heat"><span></span>';
   for (let h = DAY_START_HOUR; h < 24; h++) html += `<span class="h">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`;
   d.typical.forEach((day, dow) => {
     html += `<span class="d">${DAYS[dow]}</span>`;
+    const marks = dayMarks(day);
     day.forEach((v, h) => {
       if (h < DAY_START_HOUR) return;
       const label = `${DAY_NAMES[dow]} ${hh(h)}: ${v === null ? 'not enough data' : 'usually ' + v + '%'}`;
       const now = dow === d.dow && h === nowHour ? ' now' : '';
       html += v === null
         ? `<button type="button" class="cell nil${now}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`
-        : `<button type="button" class="cell${now}" style="${heatStyle(v)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${v}</button>`;
+        : `<button type="button" class="cell${now}" style="${heatStyle(v)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${marks.has(h) || now ? v : ''}</button>`;
     });
   });
   return html + '</div>';
