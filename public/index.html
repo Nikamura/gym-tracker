@@ -38,6 +38,8 @@
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
   --heat-0: #86b6ef; --heat-1: #3987e5; --heat-2: #1c5cab; --heat-3: #1d3f66;
   --heat-4: #6b2b2b; --heat-5: #a33a3a; --heat-6: #d9504f; --heat-7: #f08a84;
+  --heat-ink-0: #0b0b0b; --heat-ink-1: #0b0b0b; --heat-ink-2: #ffffff; --heat-ink-3: #ffffff;
+  --heat-ink-4: #ffffff; --heat-ink-5: #ffffff; --heat-ink-6: #0b0b0b; --heat-ink-7: #0b0b0b;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -46,6 +48,8 @@
   --accent: #2a78d6; --accent-soft: rgba(42,120,214,.11); --typical: #807e78;
   --heat-0: #184f95; --heat-1: #2a78d6; --heat-2: #86b6ef; --heat-3: #cde2fb;
   --heat-4: #f6cfca; --heat-5: #ee9e96; --heat-6: #e34948; --heat-7: #a82a2b;
+  --heat-ink-0: #ffffff; --heat-ink-1: #ffffff; --heat-ink-2: #0b0b0b; --heat-ink-3: #0b0b0b;
+  --heat-ink-4: #0b0b0b; --heat-ink-5: #0b0b0b; --heat-ink-6: #0b0b0b; --heat-ink-7: #ffffff;
 }
 * { box-sizing: border-box; margin: 0; }
 html { -webkit-text-size-adjust: 100%; }
@@ -160,7 +164,8 @@ h2 { font-size: 15px; font-weight: 660; }
 .heat { display: grid; grid-template-columns: 30px repeat(18, minmax(0, 1fr)); gap: 2px; }
 .heat .d { color: var(--muted); font-size: 11px; align-self: center; }
 .heat .h { color: var(--muted); font-size: 10.5px; height: 15px; overflow: visible; white-space: nowrap; }
-.cell { aspect-ratio: 1 / .72; min-height: 14px; border-radius: 3px; padding: 0; }
+.cell { display: grid; place-items: center; aspect-ratio: 1 / .72; min-width: 0; min-height: 20px; overflow: hidden; border-radius: 3px; padding: 0; font-size: 11.5px; font-weight: 620; line-height: 1; font-variant-numeric: tabular-nums; }
+.unit { color: var(--muted); font-size: 12.5px; }
 .cell.nil { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
 .cell.now { position: relative; z-index: 1; outline: 2px solid var(--ink); outline-offset: 0; }
 .scale { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 9px; color: var(--muted); font-size: 11.5px; }
@@ -188,8 +193,9 @@ th { color: var(--muted); }
   .star { width: 42px; height: 54px; }
 }
 @media (max-width: 480px) {
-  .heat { grid-template-columns: 28px repeat(18, minmax(0, 1fr)); gap: 2px; }
-  .cell { border-radius: 2px; }
+  .heat { grid-template-columns: 26px repeat(18, minmax(0, 1fr)); gap: 1px; }
+  .heat .d { font-size: 10px; }
+  .cell { aspect-ratio: auto; height: 22px; border-radius: 2px; font-size: 9px; font-weight: 600; letter-spacing: -.04em; }
 }
 @media (max-width: 1040px) {
   .week { grid-template-columns: minmax(0, 1fr); gap: 3px; }
@@ -465,7 +471,7 @@ function renderDetail() {
       <div class="chart" id="line" role="img" aria-label="${esc(chartSummary(d))}"></div>
     </section>
     <section>
-      <div class="sec-head"><h2>Usual week</h2></div>
+      <div class="sec-head"><h2>Usual week</h2><span class="unit">% full</span></div>
       <div class="heat-wrap" id="heat-wrap">${heatmap(d)}<div class="tooltip" id="heat-tip"></div></div>
       <div class="scale"><span>Quiet</span>${HEAT_STOPS.concat(101).map((_, n) => `<i style="background:var(--heat-${n})"></i>`).join('')}<span>Busy</span></div>
       <details><summary>View as table</summary><div class="table-wrap">${typicalTable(d)}</div></details>
@@ -483,9 +489,10 @@ function chartSummary(d) {
 
 // Blue below 35%, where a club stops counting as quiet, and red from there up.
 const HEAT_STOPS = [9, 18, 26, 35, 45, 58, 72];
-function heatColor(v) {
-  const step = HEAT_STOPS.findIndex((stop) => v < stop);
-  return `var(--heat-${step === -1 ? HEAT_STOPS.length : step})`;
+function heatStyle(v) {
+  const found = HEAT_STOPS.findIndex((stop) => v < stop);
+  const step = found === -1 ? HEAT_STOPS.length : found;
+  return `background:var(--heat-${step});color:var(--heat-ink-${step})`;
 }
 
 function heatmap(d) {
@@ -500,7 +507,7 @@ function heatmap(d) {
       const now = dow === d.dow && h === nowHour ? ' now' : '';
       html += v === null
         ? `<button type="button" class="cell nil${now}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`
-        : `<button type="button" class="cell${now}" style="background:${heatColor(v)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`;
+        : `<button type="button" class="cell${now}" style="${heatStyle(v)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${v}</button>`;
     });
   });
   return html + '</div>';
