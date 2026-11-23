@@ -1,5 +1,6 @@
 import type { Store } from './db.ts';
 import { isLithuanianHoliday } from './holidays.ts';
+import { clubHours, hoursStatus, intervalOn, isOpenAt, overlapsHour, type ClubHours, type LocalDay } from './hours.ts';
 
 export type Point = [ts: number, pct: number | null];
 export type Typical = (number | null)[][]; // [Mon..Sun][0..23]
@@ -94,6 +95,8 @@ export function dayHoursAt(ts: number): number[] {
 interface HourInfo {
   date: number; // Days since epoch for the local date
   hour: number;
+  dow: number;
+  dayOfMonth: number;
   holiday: boolean;
 }
 const hourInfoCache = new Map<number, HourInfo>();
@@ -107,6 +110,8 @@ function hourInfo(ts: number): HourInfo {
     info = {
       date: Date.UTC(p.year, p.month - 1, p.day) / 86_400_000,
       hour: p.hour,
+      dow: p.dow,
+      dayOfMonth: p.day,
       holiday: isLithuanianHoliday(p.year, p.month, p.day),
     };
     hourInfoCache.set(bucket, info);
@@ -128,12 +133,21 @@ function weightedMedian(entries: { value: number; weight: number }[]): number {
 
 // Each local date gets one vote per hour, recent dates count more, and public
 // holidays or days that looked closed all daytime are left out.
-function profileFrom(ts: ArrayLike<number>, values: ArrayLike<number>, n: number, now: number): Profile {
+function profileFrom(
+  ts: ArrayLike<number>,
+  values: ArrayLike<number>,
+  n: number,
+  now: number,
+  clubSchedule: ClubHours | null = null,
+): Profile {
   const hours = new Map<number, { sum: number; count: number }>();
   const daytime = new Map<number, { seen: number; usable: number }>();
   for (let i = 0; i < n; i++) {
     const info = hourInfo(ts[i]!);
     if (info.holiday) continue;
+    // Readings outside published hours say nothing about a normal visit.
+    const minute = info.hour * 60 + Math.floor((ts[i]! % 3600) / 60);
+    if (!isOpenAt(clubSchedule, info.dow, info.dayOfMonth, minute)) continue;
     const value = values[i]!;
     if (info.hour >= DAYTIME_FROM && info.hour < DAYTIME_TO) {
       const day = daytime.get(info.date) ?? { seen: 0, usable: 0 };
@@ -163,8 +177,10 @@ function profileFrom(ts: ArrayLike<number>, values: ArrayLike<number>, n: number
   const result: Profile = { values: [], days: [] };
   for (let dow = 0; dow < 7; dow++) {
     const dayCells = cells.slice(dow * 24, (dow + 1) * 24);
-    result.values.push(dayCells.map((c) => (c.length >= MIN_TYPICAL_DATES ? weightedMedian(c) : null)));
-    result.days.push(dayCells.map((c) => c.length));
+    result.values.push(
+      dayCells.map((c, hour) => (c.length >= MIN_TYPICAL_DATES && overlapsHour(clubSchedule, dow, hour) ? weightedMedian(c) : null)),
+    );
+    result.days.push(dayCells.map((c, hour) => (overlapsHour(clubSchedule, dow, hour) ? c.length : 0)));
   }
   return result;
 }
@@ -178,7 +194,7 @@ export function buildTypical(points: readonly Point[], now?: number): Typical {
   return buildProfile(points, now).values;
 }
 
-function profileFromRows(rows: Iterable<{ ts: number; pct: number }>, now: number): Profile {
+function profileFromRows(rows: Iterable<{ ts: number; pct: number }>, now: number, clubSchedule: ClubHours | null): Profile {
   let ts = new Int32Array(8192);
   let pct = new Uint8Array(8192);
   let n = 0;
@@ -194,7 +210,12 @@ function profileFromRows(rows: Iterable<{ ts: number; pct: number }>, now: numbe
     ts[n] = row.ts;
     pct[n++] = row.pct;
   }
-  return profileFrom(ts, resolveReadings(ts, pct, n), n, now);
+  return profileFrom(ts, resolveReadings(ts, pct, n), n, now, clubSchedule);
+}
+
+function localDay(ts: number): LocalDay {
+  const p = localParts(ts);
+  return { dow: p.dow, dayOfMonth: p.day, holiday: isLithuanianHoliday(p.year, p.month, p.day) };
 }
 
 interface ClubRow {
@@ -219,16 +240,16 @@ export function createReader(store: Store) {
   let profileHour = -1;
   let profiles = new Map<number, Profile>();
 
-  function profileFor(clubId: number, now: number): Profile {
+  function profileFor(club: ClubRow, now: number): Profile {
     const hour = Math.floor(now / 3600);
     if (hour !== profileHour) {
       profileHour = hour;
       profiles = new Map();
     }
-    let profile = profiles.get(clubId);
+    let profile = profiles.get(club.id);
     if (!profile) {
-      profile = profileFromRows(since.iterate(clubId, now - TYPICAL_DAYS * 86_400), now);
-      profiles.set(clubId, profile);
+      profile = profileFromRows(since.iterate(club.id, now - TYPICAL_DAYS * 86_400), now, clubHours(club.slug));
+      profiles.set(club.id, profile);
     }
     return profile;
   }
@@ -236,15 +257,24 @@ export function createReader(store: Store) {
   function overview(now: number) {
     const allStatuses = store.allStatuses();
     const statuses = new Map(allStatuses.map((s) => [s.source, s]));
+    const nowParts = localParts(now);
+    const today = localDay(now);
+    const tomorrow = localDay(now + 86_400);
+    const minute = nowParts.hour * 60 + nowParts.minute;
     const clubs = allClubs.all().map((club) => {
       const sourceFresh = now - (statuses.get(club.source)?.lastOk ?? 0) < FRESH_SECONDS;
       const seenFresh = club.last_seen !== null && now - club.last_seen < FRESH_SECONDS;
       const last = interpret(since.all(club.id, now - FRESH_SECONDS - NEIGHBOUR_SECONDS)).at(-1);
       const hasCurrent = !!last && now - last[0] < FRESH_SECONDS;
-      let state: 'open' | 'closed' | 'stale' = 'stale';
-      if (sourceFresh && seenFresh) {
-        if (club.last_closed) state = 'closed';
-        else if (hasCurrent) state = last[1] === null ? 'closed' : 'open';
+      const schedule = clubHours(club.slug);
+      const hours = hoursStatus(schedule, today, minute, tomorrow);
+      // Without a usable reading, only clubs with unknown hours can be called closed.
+      const noReading = schedule ? 'unavailable' : 'closed';
+      let state: 'open' | 'closed' | 'unavailable' | 'stale' = 'stale';
+      if (hours.known && !hours.open) state = 'closed';
+      else if (sourceFresh && seenFresh) {
+        if (club.last_closed) state = noReading;
+        else if (hasCurrent) state = last[1] === null ? noReading : 'open';
       }
       const at = localParts(hasCurrent ? last[0] : now);
       return {
@@ -254,10 +284,11 @@ export function createReader(store: Store) {
         address: club.address,
         source: club.source,
         state,
+        hoursLabel: hours.label,
         pct: state === 'open' ? last![1] : null,
-        ts: state === 'closed' ? club.last_seen : (last?.[0] ?? null),
+        ts: state === 'open' ? last![0] : club.last_seen,
         // Compared against the hour the reading was actually taken.
-        typical: profileFor(club.id, now).values[at.dow]![at.hour] ?? null,
+        typical: profileFor(club, now).values[at.dow]![at.hour] ?? null,
       };
     });
     const delayed = allStatuses
@@ -274,7 +305,15 @@ export function createReader(store: Store) {
     const from = days === 1 ? dayStart : now - days * 86_400;
     // Earlier readings give the first points of the range their context.
     const points = interpret(since.all(row.id, from - NEIGHBOUR_SECONDS)).filter((p) => p[0] >= from);
-    const profile = profileFor(row.id, now);
+    const profile = profileFor(row, now);
+    const schedule = clubHours(row.slug);
+    const today = localDay(now);
+    const minute = localParts(now).hour * 60 + localParts(now).minute;
+    const upcoming = Array.from({ length: 7 }, (_, i) => {
+      const day = localDay(dayStart + 43_200 + i * 86_400);
+      const interval = schedule ? intervalOn(schedule, day.dow, day.dayOfMonth) : ([0, 1440] as const);
+      return { dow: day.dow, holiday: day.holiday, open: interval?.[0] ?? null, close: interval?.[1] ?? null };
+    });
     return {
       now,
       days,
@@ -286,6 +325,15 @@ export function createReader(store: Store) {
       points,
       typical: profile.values,
       typicalDays: profile.days,
+      upcoming,
+      hours: schedule
+        ? {
+            kind: schedule.kind,
+            url: schedule.url,
+            label: hoursStatus(schedule, today, minute, localDay(now + 86_400)).label,
+            week: schedule.week ?? null,
+          }
+        : null,
     };
   }
 

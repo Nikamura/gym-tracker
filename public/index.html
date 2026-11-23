@@ -176,6 +176,7 @@ h2 { font-size: 15px; font-weight: 660; }
 .cell { display: grid; place-items: center; aspect-ratio: 1 / .72; min-width: 0; min-height: 20px; overflow: hidden; border-radius: 3px; padding: 0; font-size: 11.5px; font-weight: 620; line-height: 1; font-variant-numeric: tabular-nums; }
 .unit { color: var(--muted); font-size: 12.5px; }
 .cell.nil { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.cell.shut { background: transparent; box-shadow: none; cursor: default; }
 .cell.low { outline: 1px dashed currentColor; outline-offset: -3px; }
 .cell.now { position: relative; z-index: 1; outline: 2px solid var(--ink); outline-offset: 0; }
 .scale { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 9px; color: var(--muted); font-size: 11.5px; }
@@ -361,7 +362,10 @@ function comparison(club) {
   if (Math.abs(diff) < 5) return 'About usual';
   return `${Math.abs(diff)} pts ${diff < 0 ? 'quieter' : 'busier'} than usual`;
 }
-const stateLabel = (club) => (club.state === 'closed' ? 'Closed or no reading' : 'No recent data');
+const stateTitle = (club) => ({ closed: 'Closed', unavailable: 'No reading' }[club.state] || 'No recent data');
+const stateLabel = (club) => (club.state === 'closed' && club.hoursLabel ? `Closed · ${club.hoursLabel}` : stateTitle(club));
+const clock = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+const missingLabel = (d) => (d.hours?.kind === 'always' ? 'No usable reading' : 'Closed or no reading');
 
 function renderCities() {
   $('cities').innerHTML = CITIES.map(([id, label]) =>
@@ -418,9 +422,11 @@ function renderUpdated() {
   state.wasStale = stale;
 }
 
-function bestSlot(day, dates, win, earliest = 0) {
+function bestSlot(day, dates, win, earliest, open, close) {
   let best = null;
   for (let h = Math.max(win.from, earliest); h + VISIT_HOURS <= win.to; h++) {
+    // The whole visit has to fit inside the club's opening hours.
+    if (h * 60 < open || (h + VISIT_HOURS) * 60 > close) continue;
     const values = day.slice(h, h + VISIT_HOURS);
     if (values.some((v) => v === null || v === undefined)) continue;
     const score = values.reduce((sum, v) => sum + v, 0) / values.length;
@@ -437,11 +443,14 @@ function plan(d) {
   // A slot that has already started can't be a full visit any more.
   const earliest = minute === 0 ? hour : hour + 1;
   const days = Array.from({ length: 7 }, (_, offset) => {
-    const dow = (d.dow + offset) % 7;
+    const info = d.upcoming[offset];
+    const dow = info.dow;
+    // The usual week excludes holidays, so it can't predict one.
+    const reason = info.holiday ? 'Holiday' : info.open === null ? 'Closed' : null;
     return {
-      offset, dow,
+      offset, dow, reason,
       label: offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : DAYS[dow],
-      slot: bestSlot(d.typical[dow] || [], d.typicalDays[dow] || [], win, offset === 0 ? earliest : 0),
+      slot: reason ? null : bestSlot(d.typical[dow] || [], d.typicalDays[dow] || [], win, offset === 0 ? earliest : 0, info.open, info.close),
     };
   });
   const usable = days.filter((x) => x.slot);
@@ -453,21 +462,29 @@ function plan(d) {
 const slotText = (slot) => `${hh(slot.hour)}–${hh(slot.hour + VISIT_HOURS)}`;
 
 function bestCard(d, club, open) {
+  if (d.hours?.kind === 'classes') {
+    return `<div class="best"><h2>Best time to go</h2><p class="verdict">This studio runs by class schedule. <a href="${esc(d.hours.url)}" target="_blank" rel="noopener">See its classes</a>.</p></div>`;
+  }
   const { win, days, next, top } = plan(d);
   const chips = WINDOWS.map((w) => `<button type="button" data-window="${w.id}" aria-pressed="${w.id === win.id}">${esc(w.label)}</button>`).join('');
   if (!next) {
     return `<div class="best"><h2>Best time to go</h2><div class="chips" role="group" aria-label="When can you go?">${chips}</div><p class="verdict">Not enough history for this time of day yet.</p></div>`;
   }
   let verdict = '';
-  const hourNow = Number(time(d.now).split(':')[0]);
-  if (next.offset === 0 && open && hourNow >= win.from && hourNow < win.to) {
+  const [hourNow, minuteNow] = time(d.now).split(':').map(Number);
+  const nowMinutes = hourNow * 60 + minuteNow;
+  const todayHours = d.upcoming[0];
+  const visitFits = todayHours.close !== null && nowMinutes + VISIT_HOURS * 60 <= todayHours.close;
+  if (open && !visitFits) {
+    verdict = `<strong>Closes at ${clock(todayHours.close)}</strong>, too soon for a full visit.`;
+  } else if (next.offset === 0 && open && hourNow >= win.from && hourNow < win.to) {
     if (club.pct <= next.slot.pct + 5 || club.pct < LEVELS[0].max) verdict = `<strong>Good time to go now</strong>, it is ${esc(level(club.pct).label.toLowerCase())} at ${club.pct}%.`;
     else verdict = `<strong>Worth waiting if you can.</strong> It is ${club.pct}% now.`;
   }
   const extra = top && top !== next ? `<p class="verdict">Quietest this week: <strong>${esc(DAY_NAMES[top.dow])} ${slotText(top.slot)}</strong>, about ${top.slot.pct}%.</p>` : '';
   const week = days.map((x) => x.slot
     ? `<div class="day${x === top ? ' top' : ''}"><b>${esc(x.label)}</b><span class="tnum">${hh(x.slot.hour)}</span><small class="tnum"><i class="dot l${levelIndex(x.slot.pct)}"></i>${x.slot.pct}% ${esc(level(x.slot.pct).label)}</small></div>`
-    : `<div class="day"><b>${esc(x.label)}</b><span>–</span><small>${x.offset === 0 ? 'Passed' : 'No data'}</small></div>`).join('');
+    : `<div class="day"><b>${esc(x.label)}</b><span>–</span><small>${esc(x.reason || (x.offset === 0 ? 'Passed' : 'No data'))}</small></div>`).join('');
   return `<div class="best">
     <h2>Best time to go</h2>
     <div class="chips" role="group" aria-label="When can you go?">${chips}</div>
@@ -497,11 +514,11 @@ function renderDetail() {
   const seen = c.ts ? `Reading from ${time(c.ts)}` : '';
   el.innerHTML = `
     <button id="back" type="button">‹ All clubs</button>
-    <div class="title">${OPERATORS[d.club.source] ? `<div class="operator">${operatorIcon(d.club.source)}${esc(OPERATORS[d.club.source].name)}</div>` : ''}<h1>${esc(d.club.name)}</h1><p>${esc(d.club.address)}</p></div>
+    <div class="title">${OPERATORS[d.club.source] ? `<div class="operator">${operatorIcon(d.club.source)}${esc(OPERATORS[d.club.source].name)}</div>` : ''}<h1>${esc(d.club.name)}</h1><p>${esc([d.club.address, d.hours?.label].filter(Boolean).join(' · '))}</p></div>
     <div class="hero">
-      <div class="big tnum${open ? '' : ' none'}">${open ? `${c.pct}<small>%</small>` : esc(stateLabel(c))}</div>
+      <div class="big tnum${open ? '' : ' none'}">${open ? `${c.pct}<small>%</small>` : esc(stateTitle(c))}</div>
       <div class="facts">
-        ${open ? `<span class="status"><i class="dot l${levelIndex(c.pct)}"></i>${esc(lvl.label)}</span>` : '<span class="status"><i class="dot none"></i>Not available</span>'}
+        ${open ? `<span class="status"><i class="dot l${levelIndex(c.pct)}"></i>${esc(lvl.label)}</span>` : `<span class="status"><i class="dot none"></i>${esc(c.state === 'closed' ? (c.hoursLabel || 'Closed') : 'Not available')}</span>`}
         <span class="cmp">${esc([cmp, seen].filter(Boolean).join(' · '))}</span>
       </div>
     </div>
@@ -513,7 +530,7 @@ function renderDetail() {
           ${[[1, 'Today'], [7, '7 days'], [30, '30 days']].map(([v, l]) => `<button type="button" data-days="${v}" aria-pressed="${state.days === v}">${l}</button>`).join('')}
         </div>
       </div>
-      ${d.days === 1 ? '<div class="legend"><span><i></i>Today</span><span><i class="t"></i>Usual for ' + DAY_NAMES[d.dow] + '</span></div>' : `<div class="legend"><span><i class="b"></i>Busiest reading each day, ${hh(WINDOWS[0].from)}–${hh(WINDOWS[0].to)}</span><span><i class="b few"></i>Fewer than ${FEW_READINGS} readings</span><span><i class="b closed"></i>Closed or no reading</span></div>`}
+      ${d.days === 1 ? '<div class="legend"><span><i></i>Today</span><span><i class="t"></i>Usual for ' + DAY_NAMES[d.dow] + '</span></div>' : `<div class="legend"><span><i class="b"></i>Busiest reading each day, ${hh(WINDOWS[0].from)}–${hh(WINDOWS[0].to)}</span><span><i class="b few"></i>Fewer than ${FEW_READINGS} readings</span><span><i class="b closed"></i>${esc(missingLabel(d))}</span></div>`}
       <div class="chart" id="line" role="img" aria-label="${esc(chartSummary(d))}"></div>
     </section>
     <section>
@@ -522,7 +539,7 @@ function renderDetail() {
       <div class="scale"><span>0%</span><i class="ramp" style="background:${heatLegend()}"></i><span>${heatPeak(d)}%</span></div>
       <details><summary>View as table</summary><div class="table-wrap">${typicalTable(d)}</div></details>
     </section>
-    <p class="note">Based on the last 6 months in Lithuanian time. Recent weeks count more, and public holidays and days a club looked closed are left out. Dashed boxes have fewer than ${LOW_CONFIDENCE_DAYS} days of data. Best times assume a 2-hour visit. A reading of 100% is shown as full only when the club was already busy, because the source also reports 100% when a club is closed.</p>`;
+    <p class="note">Based on the last 6 months in Lithuanian time. Recent weeks count more, and public holidays and days without usable readings are left out. Dashed boxes have fewer than ${LOW_CONFIDENCE_DAYS} days of data, and empty space means closed. Best times assume a 2-hour visit. A reading of 100% counts as full only when the club was already busy, because the source can also report 100% when it has no count.${d.hours ? ` <a href="${esc(d.hours.url)}" target="_blank" rel="noopener">Opening hours</a> come from the operator and may change on holidays.` : ''}</p>`;
   drawLine();
 }
 
@@ -571,6 +588,11 @@ function dayMarks(day) {
   return new Set([low, high].filter((h) => h !== null));
 }
 
+function isShut(d, dow, hour) {
+  const interval = d.hours?.week?.[dow];
+  return !!interval && !(interval[0] < (hour + 1) * 60 && interval[1] > hour * 60);
+}
+
 function heatmap(d) {
   const nowHour = Number(fmtHour.format(d.now * 1000)) % 24;
   const peak = heatPeak(d);
@@ -582,11 +604,12 @@ function heatmap(d) {
     day.forEach((v, h) => {
       if (h < DAY_START_HOUR) return;
       const dates = d.typicalDays[dow]?.[h] ?? 0;
-      const label = `${DAY_NAMES[dow]} ${hh(h)}: ${v === null ? 'not enough data' : `usually ${v}%, from ${dates} days`}`;
+      const shut = isShut(d, dow, h);
+      const label = `${DAY_NAMES[dow]} ${hh(h)}: ${shut ? 'closed' : v === null ? 'not enough data' : `usually ${v}%, from ${dates} days`}`;
       const now = dow === d.dow && h === nowHour ? ' now' : '';
       const low = v !== null && dates < LOW_CONFIDENCE_DAYS && !now ? ' low' : '';
       html += v === null
-        ? `<button type="button" class="cell nil${now}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`
+        ? `<button type="button" class="cell nil${shut ? ' shut' : ''}${now}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`
         : `<button type="button" class="cell${now}${low}" style="${heatStyle(v, peak)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${marks.has(h) || now ? v : ''}</button>`;
     });
   });
@@ -666,7 +689,7 @@ function drawDaily(host, d) {
     const n = day.values.length;
     tip.innerHTML = day.peak
       ? `<div><b class="tnum">${day.peak.v}%</b> at ${time(day.peak.ts)}</div><div>${esc(fmtDay.format(day.anchor * 1000))} · ${n} reading${n === 1 ? '' : 's'}</div>`
-      : `<div><b>${day.closed ? 'Closed or no reading' : 'No daytime readings'}</b></div><div>${esc(fmtDay.format(day.anchor * 1000))}</div>`;
+      : `<div><b>${day.closed ? esc(missingLabel(d)) : 'No daytime readings'}</b></div><div>${esc(fmtDay.format(day.anchor * 1000))}</div>`;
     tip.classList.add('on');
     const left = (cx(i) / W) * rect.width;
     tip.style.left = Math.max(0, Math.min(rect.width - tip.offsetWidth, left + (left > rect.width / 2 ? -tip.offsetWidth - 10 : 10))) + 'px';

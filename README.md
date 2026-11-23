@@ -27,6 +27,7 @@ The CSV files in `data/` are a frozen archive of the original GitHub Actions his
 - The source reports `100` for both full and closed clubs. It is stored as received. On read it counts as full only when a real reading within an hour was at least 70%.
 - Marketing suffixes in club names are removed, so renamed clubs keep their history.
 - "Usual week" is a weighted median for each weekday and hour over the last 6 months. Each date gets one vote, recent weeks count more (6-week half-life), and public holidays and days that looked closed are excluded.
+- Opening hours in `src/hours.ts` come from each operator's club page. Readings outside them are excluded, and a visit must fit inside them.
 - "Best time to go" picks the quietest 2-hour visit inside the chosen part of the day.
 
 ## Development

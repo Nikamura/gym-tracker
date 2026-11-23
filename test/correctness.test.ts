@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { openStore } from '../src/db.ts';
 import { easterSunday, isLithuanianHoliday } from '../src/holidays.ts';
+import { clubHours, hoursStatus, intervalOn } from '../src/hours.ts';
 import { importCsvDir } from '../src/import-csv.ts';
 import { buildProfile, createReader, dayHoursAt, interpret, type Point } from '../src/read.ts';
 import { RAW_RETENTION_DAYS, applyRetention } from '../src/retention.ts';
@@ -141,6 +142,62 @@ test('re-importing CSVs cannot change compacted hours', () => {
   importCsvDir(store, dir);
   applyRetention(store, now);
   assert.deepEqual(store.sqlite.prepare('SELECT ts, pct FROM samples').all(), before);
+});
+
+const day = (dow: number, dayOfMonth = 15, holiday = false) => ({ dow, dayOfMonth, holiday });
+
+test('reads published opening hours', () => {
+  const pool = clubHours('kauno-zalgirio-baseinas');
+  assert.deepEqual(intervalOn(pool, 1, 10), [360, 1320]);
+  assert.deepEqual(intervalOn(pool, 6, 10), [480, 1260]);
+  assert.deepEqual(intervalOn(pool, 0, 3), [840, 1320]);
+  assert.deepEqual(intervalOn(pool, 0, 10), [360, 1320]);
+  assert.deepEqual(intervalOn(clubHours('impuls-kareiviu'), 5, 10), [540, 1200]);
+  assert.deepEqual(intervalOn(clubHours('impuls-fabijoniskiu'), 5, 10), [0, 1440]);
+  assert.equal(clubHours('lemon-gym-reformer')?.kind, 'classes');
+});
+
+test('labels the current opening state', () => {
+  const impuls = clubHours('impuls-kareiviu');
+  assert.deepEqual(hoursStatus(impuls, day(1), 600, day(2)), { known: true, open: true, label: 'Open until 22:00' });
+  assert.deepEqual(hoursStatus(impuls, day(1), 300, day(2)), { known: true, open: false, label: 'Opens 06:30' });
+  assert.deepEqual(hoursStatus(impuls, day(4), 1350, day(5)), { known: true, open: false, label: 'Opens tomorrow 09:00' });
+  assert.equal(hoursStatus(impuls, day(1, 15, true), 300, day(2)).known, false);
+  assert.equal(hoursStatus(clubHours('pikas'), day(1), 200, day(2)).label, 'Open 24/7');
+});
+
+test('a 24/7 club with an unusable reading is not called closed', () => {
+  const store = openStore(':memory:');
+  store.record('lemongym', MONDAY - 60, [{ ...club, pct: 100 }]);
+  store.setStatus('lemongym', { lastOk: MONDAY - 60 });
+  assert.equal(createReader(store).overview(MONDAY).clubs[0]!.state, 'unavailable');
+});
+
+test('a scheduled club is closed outside its hours even with an old reading', () => {
+  const store = openStore(':memory:');
+  // Tuesday 2026-01-06 at 05:00 in Vilnius.
+  const now = Date.UTC(2026, 0, 6, 3) / 1000;
+  store.record('impuls', now - 60, [{ name: 'Kareivių', city: 'Vilniaus klubai', address: 'K', pct: 40 }]);
+  store.setStatus('impuls', { lastOk: now - 60 });
+  const row = createReader(store).overview(now).clubs[0]!;
+  assert.equal(row.state, 'closed');
+  assert.equal(row.hoursLabel, 'Opens 06:30');
+});
+
+test('readings outside published hours stay out of the usual week', () => {
+  const store = openStore(':memory:');
+  const pool = { name: 'Kauno Žalgirio baseinas', city: 'Kauno klubai', address: 'B' };
+  // Tuesdays in January at 05:00 (closed) and 10:00 (open).
+  const tue = Date.UTC(2026, 0, 6, 3) / 1000;
+  for (let w = 0; w < 4; w++) {
+    store.record('zalgirio-baseinas', tue + w * WEEK, [{ ...pool, pct: 90 }]);
+    store.record('zalgirio-baseinas', tue + w * WEEK + 5 * 3600, [{ ...pool, pct: 30 }]);
+  }
+  const now = tue + 3 * WEEK + 6 * 3600;
+  store.setStatus('zalgirio-baseinas', { lastOk: now });
+  const detail = createReader(store).club('kauno-zalgirio-baseinas', 7, now)!;
+  assert.equal(detail.typical[1]![5], null);
+  assert.equal(detail.typical[1]![10], 30);
 });
 
 test('honours gzip preferences', () => {
