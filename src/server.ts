@@ -16,6 +16,16 @@ const STATIC_FILES: Record<string, [file: string, type: string, maxAge: number]>
 };
 const COMPRESSIBLE = /^(text\/|application\/json|application\/manifest|image\/svg)/;
 
+export function acceptsGzip(header: unknown): boolean {
+  for (const part of String(header ?? '').split(',')) {
+    const [coding, ...params] = part.trim().toLowerCase().split(';').map((x) => x.trim());
+    if (coding !== 'gzip') continue;
+    const q = params.find((p) => p.startsWith('q='));
+    return !q || Number(q.slice(2)) > 0;
+  }
+  return false;
+}
+
 export function createHandler(store: Store, publicDir: string, nowSeconds = () => Math.floor(Date.now() / 1000)) {
   const reader = createReader(store);
   const files = new Map(
@@ -34,7 +44,7 @@ export function createHandler(store: Store, publicDir: string, nowSeconds = () =
     cache: string,
     gzipped: Buffer | null = null,
   ) {
-    const accepts = /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
+    const accepts = acceptsGzip(req.headers['accept-encoding']);
     const compressed = accepts && COMPRESSIBLE.test(type) ? (gzipped ?? (body.length > 512 ? gzipSync(body) : null)) : null;
     const payload = compressed ?? body;
     res.writeHead(status, {

@@ -20,7 +20,7 @@ A small TypeScript service runs in Docker on the homelab:
 
 Samples are kept at 15-minute detail for 400 days, hourly until 5 years, then deleted. That keeps the database to tens of megabytes.
 
-The CSV files in `data/` are the original history and were imported into SQLite.
+The CSV files in `data/` are a frozen archive of the original GitHub Actions history, imported into SQLite. Data is no longer committed to Git.
 
 ## Reading the data
 
@@ -42,4 +42,4 @@ PROXY_URL=http://user:pass@proxy:3128 pnpm start
 
 The checkout is at `/opt/stacks/gym-tracker` on the Docker host. On a first deployment, create `db/` as UID 1000 before starting. Push to GitHub, check out the commit there, then run `docker compose up -d --build`. `.env`, `db/`, and `DEPLOYED_COMMIT` are host-local.
 
-`deploy/` holds the nightly NAS backup and its systemd units.
+`deploy/` holds the nightly NAS backup and its systemd units. `deploy/backup.py --check` reports whether a verified backup is recent.

@@ -8,6 +8,7 @@ import { easterSunday, isLithuanianHoliday } from '../src/holidays.ts';
 import { importCsvDir } from '../src/import-csv.ts';
 import { buildProfile, createReader, dayHoursAt, interpret, type Point } from '../src/read.ts';
 import { RAW_RETENTION_DAYS, applyRetention } from '../src/retention.ts';
+import { acceptsGzip } from '../src/server.ts';
 import { parseLemonGym } from '../src/sources.ts';
 
 const fixture = readFileSync(new URL('./fixtures/lemongym.json', import.meta.url), 'utf8');
@@ -140,6 +141,13 @@ test('re-importing CSVs cannot change compacted hours', () => {
   importCsvDir(store, dir);
   applyRetention(store, now);
   assert.deepEqual(store.sqlite.prepare('SELECT ts, pct FROM samples').all(), before);
+});
+
+test('honours gzip preferences', () => {
+  assert.ok(acceptsGzip('br, gzip'));
+  assert.ok(acceptsGzip('gzip;q=0.5'));
+  assert.ok(!acceptsGzip('gzip;q=0, identity;q=1'));
+  assert.ok(!acceptsGzip(undefined));
 });
 
 test('blank CSV occupancy is skipped, not read as 0%', () => {

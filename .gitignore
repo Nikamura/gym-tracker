@@ -5,3 +5,4 @@ db/
 DEPLOYED_COMMIT
 backup.sqlite3
 .backup.lock
+.backup-last-ok

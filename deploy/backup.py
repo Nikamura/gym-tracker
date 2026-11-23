@@ -6,9 +6,22 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import sys
+import time
 
 KEEP = 14
 root = Path('/opt/stacks/gym-tracker')
+last_ok = root / '.backup-last-ok'
+MAX_AGE_HOURS = 30
+
+# Health check for monitoring. A local marker avoids needing NAS read access.
+if '--check' in sys.argv:
+    try:
+        age = (time.time() - last_ok.stat().st_mtime) / 3600
+    except OSError:
+        raise SystemExit('No verified backup recorded')
+    print(f'Last verified backup {age:.1f} h ago')
+    raise SystemExit(0 if age < MAX_AGE_HOURS else 1)
 
 with (root / '.backup.lock').open('w') as lock:
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -46,4 +59,5 @@ with (root / '.backup.lock').open('w') as lock:
     stage.unlink()
     for old in sorted(out.glob('gym-tracker-*.sqlite3'))[:-KEEP]:
         old.unlink()
+    last_ok.touch()
     print(f'Gym Tracker backup verified: {target.name}')
