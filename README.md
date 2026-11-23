@@ -24,9 +24,10 @@ The CSV files in `data/` are the original history and were imported into SQLite.
 
 ## Reading the data
 
-- The source reports `100` for both full and closed clubs. It is stored as received. On read it counts as full only when an adjacent reading was at least 70%.
+- The source reports `100` for both full and closed clubs. It is stored as received. On read it counts as full only when a real reading within an hour was at least 70%.
 - Marketing suffixes in club names are removed, so renamed clubs keep their history.
-- "Best time to go" uses the median for each weekday and hour over the last 6 months, and picks the quietest 2-hour visit inside the chosen part of the day.
+- "Usual week" is a weighted median for each weekday and hour over the last 6 months. Each date gets one vote, recent weeks count more (6-week half-life), and public holidays and days that looked closed are excluded.
+- "Best time to go" picks the quietest 2-hour visit inside the chosen part of the day.
 
 ## Development
 
@@ -39,6 +40,6 @@ PROXY_URL=http://user:pass@proxy:3128 pnpm start
 
 ## Deployment
 
-The checkout is at `/opt/stacks/gym-tracker` on the Docker host. Push to GitHub, check out the commit there, then run `docker compose up -d --build`. `.env`, `db/`, and `DEPLOYED_COMMIT` are host-local.
+The checkout is at `/opt/stacks/gym-tracker` on the Docker host. On a first deployment, create `db/` as UID 1000 before starting. Push to GitHub, check out the commit there, then run `docker compose up -d --build`. `.env`, `db/`, and `DEPLOYED_COMMIT` are host-local.
 
 `deploy/` holds the nightly NAS backup and its systemd units.

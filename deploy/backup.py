@@ -35,7 +35,14 @@ with (root / '.backup.lock').open('w') as lock:
     temp = out / f'.{target.name}.tmp'
     shutil.copyfile(stage, temp)
     os.chmod(temp, 0o600)
+    with temp.open('rb+') as copied:
+        os.fsync(copied.fileno())
     os.replace(temp, target)
+    directory = os.open(out, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
     stage.unlink()
     for old in sorted(out.glob('gym-tracker-*.sqlite3'))[:-KEEP]:
         old.unlink()

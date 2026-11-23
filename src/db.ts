@@ -8,7 +8,7 @@ export interface Reading {
   name: string;
   city: string;
   address: string;
-  pct: number;
+  pct: number | null; // null = the source explicitly reported closed
 }
 
 export type Store = ReturnType<typeof openStore>;
@@ -41,22 +41,46 @@ export function openStore(path: string) {
       last_error TEXT,
       blocked_until INTEGER
     );
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
+  const columns = sqlite.pragma('table_info(clubs)') as { name: string }[];
+  if (!columns.some((c) => c.name === 'last_seen')) {
+    sqlite.exec(`
+      ALTER TABLE clubs ADD COLUMN last_seen INTEGER;
+      ALTER TABLE clubs ADD COLUMN last_closed INTEGER NOT NULL DEFAULT 0;
+      UPDATE clubs SET last_seen = (SELECT MAX(ts) FROM samples WHERE club_id = clubs.id);
+    `);
+  }
   const db = drizzle(sqlite);
+  const readMeta = sqlite.prepare<[string], { value: string }>('SELECT value FROM meta WHERE key = ?');
+  const writeMeta = sqlite.prepare(
+    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+  );
 
   function record(source: string, ts: number, readings: Reading[]): void {
     sqlite.transaction(() => {
       for (const r of readings) {
         const [club] = db
           .insert(clubs)
-          .values({ slug: clubSlug(source, r.name), name: r.name, city: r.city, address: r.address, source })
+          .values({
+            slug: clubSlug(source, r.name),
+            name: r.name,
+            city: r.city,
+            address: r.address,
+            source,
+            lastSeen: ts,
+            lastClosed: r.pct === null ? 1 : 0,
+          })
           .onConflictDoUpdate({
             target: clubs.slug,
-            set: { name: r.name, city: r.city, address: r.address },
+            set: { name: r.name, city: r.city, address: r.address, lastSeen: ts, lastClosed: r.pct === null ? 1 : 0 },
           })
           .returning({ id: clubs.id })
           .all();
-        db.insert(samples).values({ clubId: club!.id, ts, pct: r.pct }).onConflictDoNothing().run();
+        if (r.pct !== null) db.insert(samples).values({ clubId: club!.id, ts, pct: r.pct }).onConflictDoNothing().run();
       }
     })();
   }
@@ -84,5 +108,16 @@ export function openStore(path: string) {
     return { samples: row?.samples ?? 0, latest: row?.latest ?? null };
   }
 
-  return { sqlite, db, record, getStatus, setStatus, allStatuses, counts, close: () => sqlite.close() };
+  return {
+    sqlite,
+    db,
+    record,
+    getStatus,
+    setStatus,
+    allStatuses,
+    counts,
+    getMeta: (key: string) => readMeta.get(key)?.value ?? null,
+    setMeta: (key: string, value: string) => void writeMeta.run(key, value),
+    close: () => sqlite.close(),
+  };
 }

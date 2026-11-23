@@ -1,38 +1,57 @@
 import type { Store } from './db.ts';
+import { isLithuanianHoliday } from './holidays.ts';
 
 export type Point = [ts: number, pct: number | null];
 export type Typical = (number | null)[][]; // [Mon..Sun][0..23]
+export interface Profile {
+  values: Typical;
+  days: number[][]; // Distinct dates behind each value
+}
 
 const TZ = 'Europe/Vilnius';
 const FULL_NEIGHBOUR = 70;
 const NEIGHBOUR_SECONDS = 3600;
 const TYPICAL_DAYS = 182;
-const MIN_TYPICAL_SAMPLES = 3;
+const HALF_LIFE_DAYS = 42;
+const MIN_TYPICAL_DATES = 3;
+const DAYTIME_FROM = 10;
+const DAYTIME_TO = 21;
+const SLOW_SOURCE_SECONDS = 12 * 3600;
 export const FRESH_SECONDS = 45 * 60;
 
-// The source reports 100 for both "full" and "closed". A 100 only counts as
-// full when an adjacent reading shows the club was already filling up.
-// Works on typed arrays because typical patterns scan months of samples inside
-// a small container. -1 in the result means no usable reading.
-function resolve(ts: ArrayLike<number>, pct: ArrayLike<number>, n: number): Int8Array {
+// The source reports 100 for both "full" and "closed". A 100 is full only when
+// a real, non-100 reading within an hour shows the club was already busy.
+// Works on typed arrays because profiles scan months of samples. -1 = no reading.
+export function resolveReadings(ts: ArrayLike<number>, pct: ArrayLike<number>, n: number): Int8Array {
   const out = new Int8Array(n);
-  for (let i = 0; i < n; i++) out[i] = pct[i] === 100 ? -1 : pct[i]!;
-  const promote = (i: number, j: number) => {
-    if (out[i] === -1 && out[j]! >= FULL_NEIGHBOUR && Math.abs(ts[j]! - ts[i]!) <= NEIGHBOUR_SECONDS) out[i] = 100;
-  };
-  for (let i = 1; i < n; i++) promote(i, i - 1);
-  for (let i = n - 2; i >= 0; i--) promote(i, i + 1);
+  let anchor = -1;
+  for (let i = 0; i < n; i++) {
+    if (pct[i] !== 100) {
+      out[i] = pct[i]!;
+      anchor = i;
+    } else {
+      out[i] = anchor >= 0 && pct[anchor]! >= FULL_NEIGHBOUR && ts[i]! - ts[anchor]! <= NEIGHBOUR_SECONDS ? 100 : -1;
+    }
+  }
+  anchor = -1;
+  for (let i = n - 1; i >= 0; i--) {
+    if (pct[i] !== 100) anchor = i;
+    else if (out[i] === -1 && anchor >= 0 && pct[anchor]! >= FULL_NEIGHBOUR && ts[anchor]! - ts[i]! <= NEIGHBOUR_SECONDS) out[i] = 100;
+  }
   return out;
 }
 
 export function interpret(rows: readonly { ts: number; pct: number }[]): Point[] {
-  const out = resolve(rows.map((r) => r.ts), rows.map((r) => r.pct), rows.length);
+  const out = resolveReadings(rows.map((r) => r.ts), rows.map((r) => r.pct), rows.length);
   return rows.map((r, i) => [r.ts, out[i] === -1 ? null : out[i]!]);
 }
 
 const partsFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: TZ,
   weekday: 'short',
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
   second: '2-digit',
@@ -44,60 +63,122 @@ export function localParts(ts: number) {
   const p = Object.fromEntries(partsFormat.formatToParts(ts * 1000).map((x) => [x.type, x.value]));
   return {
     dow: WEEKDAYS.indexOf(p.weekday!),
+    year: Number(p.year),
+    month: Number(p.month),
+    day: Number(p.day),
     hour: Number(p.hour),
-    secondsIntoDay: Number(p.hour) * 3600 + Number(p.minute) * 60 + Number(p.second),
+    minute: Number(p.minute),
+    second: Number(p.second),
   };
 }
 
-const CELLS = 7 * 24;
-const VALUES = 101;
-// Hour buckets are shared across clubs, so each is only formatted once.
-const cellByHour = new Map<number, number>();
+function wallClockToTs(year: number, month: number, day: number, hour: number): number {
+  const target = Date.UTC(year, month - 1, day, hour) / 1000;
+  let guess = target;
+  for (let i = 0; i < 3; i++) {
+    const p = localParts(guess);
+    guess += target - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) / 1000;
+  }
+  return guess;
+}
 
-function cellFor(ts: number): number {
+// Timestamps of 00:00 through 24:00 on the local date, correct on clock-change days.
+export function dayHoursAt(ts: number): number[] {
+  const p = localParts(ts);
+  const next = new Date(Date.UTC(p.year, p.month - 1, p.day + 1));
+  const hours = Array.from({ length: 24 }, (_, h) => wallClockToTs(p.year, p.month, p.day, h));
+  hours.push(wallClockToTs(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0));
+  return hours;
+}
+
+interface HourInfo {
+  date: number; // Days since epoch for the local date
+  hour: number;
+  holiday: boolean;
+}
+const hourInfoCache = new Map<number, HourInfo>();
+
+function hourInfo(ts: number): HourInfo {
   const bucket = Math.floor(ts / 3600);
-  let cell = cellByHour.get(bucket);
-  if (cell === undefined) {
-    const at = localParts(bucket * 3600);
-    cell = at.dow * 24 + at.hour;
-    cellByHour.set(bucket, cell);
+  let info = hourInfoCache.get(bucket);
+  if (!info) {
+    if (hourInfoCache.size > 20_000) hourInfoCache.clear();
+    const p = localParts(bucket * 3600);
+    info = {
+      date: Date.UTC(p.year, p.month - 1, p.day) / 86_400_000,
+      hour: p.hour,
+      holiday: isLithuanianHoliday(p.year, p.month, p.day),
+    };
+    hourInfoCache.set(bucket, info);
   }
-  return cell;
+  return info;
 }
 
-function medianAt(histogram: Uint32Array, cell: number, rank: number): number {
+function weightedMedian(entries: { value: number; weight: number }[]): number {
+  entries.sort((a, b) => a.value - b.value);
+  const half = entries.reduce((sum, e) => sum + e.weight, 0) / 2;
   let seen = 0;
-  for (let v = 0; v < VALUES; v++) {
-    seen += histogram[cell * VALUES + v]!;
-    if (seen > rank) return v;
+  for (let i = 0; i < entries.length; i++) {
+    seen += entries[i]!.weight;
+    if (Math.abs(seen - half) < 1e-9 && entries[i + 1]) return Math.round((entries[i]!.value + entries[i + 1]!.value) / 2);
+    if (seen > half) return Math.round(entries[i]!.value);
   }
-  return VALUES - 1;
+  return Math.round(entries.at(-1)!.value);
 }
 
-function fromHistogram(histogram: Uint32Array): Typical {
-  return WEEKDAYS.map((_, dow) =>
-    Array.from({ length: 24 }, (_, hour) => {
-      const cell = dow * 24 + hour;
-      let count = 0;
-      for (let v = 0; v < VALUES; v++) count += histogram[cell * VALUES + v]!;
-      if (count < MIN_TYPICAL_SAMPLES) return null;
-      const mid = count >> 1;
-      return count % 2
-        ? medianAt(histogram, cell, mid)
-        : Math.round((medianAt(histogram, cell, mid - 1) + medianAt(histogram, cell, mid)) / 2);
-    }),
-  );
-}
-
-export function buildTypical(points: readonly Point[]): Typical {
-  const histogram = new Uint32Array(CELLS * VALUES);
-  for (const [ts, pct] of points) {
-    if (pct !== null) histogram[cellFor(ts) * VALUES + pct]!++;
+// Each local date gets one vote per hour, recent dates count more, and public
+// holidays or days that looked closed all daytime are left out.
+function profileFrom(ts: ArrayLike<number>, values: ArrayLike<number>, n: number, now: number): Profile {
+  const hours = new Map<number, { sum: number; count: number }>();
+  const daytime = new Map<number, { seen: number; usable: number }>();
+  for (let i = 0; i < n; i++) {
+    const info = hourInfo(ts[i]!);
+    if (info.holiday) continue;
+    const value = values[i]!;
+    if (info.hour >= DAYTIME_FROM && info.hour < DAYTIME_TO) {
+      const day = daytime.get(info.date) ?? { seen: 0, usable: 0 };
+      day.seen++;
+      if (value > 0) day.usable++;
+      daytime.set(info.date, day);
+    }
+    if (value < 0) continue;
+    const key = info.date * 24 + info.hour;
+    const hour = hours.get(key) ?? { sum: 0, count: 0 };
+    hour.sum += value;
+    hour.count++;
+    hours.set(key, hour);
   }
-  return fromHistogram(histogram);
+
+  const today = hourInfo(now).date;
+  const cells: { value: number; weight: number }[][] = Array.from({ length: 7 * 24 }, () => []);
+  for (const [key, { sum, count }] of hours) {
+    const date = Math.floor(key / 24);
+    const day = daytime.get(date);
+    if (day && day.usable === 0) continue;
+    const dow = (date + 3) % 7; // 1970-01-01 was a Thursday
+    const weight = 0.5 ** (Math.max(0, today - date) / HALF_LIFE_DAYS);
+    cells[dow * 24 + (key - date * 24)]!.push({ value: sum / count, weight });
+  }
+
+  const result: Profile = { values: [], days: [] };
+  for (let dow = 0; dow < 7; dow++) {
+    const dayCells = cells.slice(dow * 24, (dow + 1) * 24);
+    result.values.push(dayCells.map((c) => (c.length >= MIN_TYPICAL_DATES ? weightedMedian(c) : null)));
+    result.days.push(dayCells.map((c) => c.length));
+  }
+  return result;
 }
 
-function typicalFromRows(rows: Iterable<{ ts: number; pct: number }>): Typical {
+export function buildProfile(points: readonly Point[], now?: number): Profile {
+  const end = now ?? Math.max(0, ...points.map((p) => p[0]));
+  return profileFrom(points.map((p) => p[0]), points.map((p) => p[1] ?? -1), points.length, end);
+}
+
+export function buildTypical(points: readonly Point[], now?: number): Typical {
+  return buildProfile(points, now).values;
+}
+
+function profileFromRows(rows: Iterable<{ ts: number; pct: number }>, now: number): Profile {
   let ts = new Int32Array(8192);
   let pct = new Uint8Array(8192);
   let n = 0;
@@ -113,12 +194,7 @@ function typicalFromRows(rows: Iterable<{ ts: number; pct: number }>): Typical {
     ts[n] = row.ts;
     pct[n++] = row.pct;
   }
-  const resolved = resolve(ts, pct, n);
-  const histogram = new Uint32Array(CELLS * VALUES);
-  for (let i = 0; i < n; i++) {
-    if (resolved[i] !== -1) histogram[cellFor(ts[i]!) * VALUES + resolved[i]!]!++;
-  }
-  return fromHistogram(histogram);
+  return profileFrom(ts, resolveReadings(ts, pct, n), n, now);
 }
 
 interface ClubRow {
@@ -128,6 +204,8 @@ interface ClubRow {
   city: string;
   address: string;
   source: string;
+  last_seen: number | null;
+  last_closed: number;
 }
 
 export function createReader(store: Store) {
@@ -137,38 +215,38 @@ export function createReader(store: Store) {
   const since = sqlite.prepare<[number, number], { ts: number; pct: number }>(
     'SELECT ts, pct FROM samples WHERE club_id = ? AND ts >= ? ORDER BY ts',
   );
-  const recent = sqlite.prepare<[number], { ts: number; pct: number }>(
-    'SELECT ts, pct FROM samples WHERE club_id = ? ORDER BY ts DESC LIMIT 8',
-  );
 
-  let typicalKey = -1;
-  let typicalCache = new Map<number, Typical>();
+  let profileHour = -1;
+  let profiles = new Map<number, Profile>();
 
-  function typicalFor(clubId: number, now: number): Typical {
-    const key = Math.max(0, ...store.allStatuses().map((s) => s.lastOk ?? 0));
-    if (key !== typicalKey) {
-      typicalKey = key;
-      typicalCache = new Map();
+  function profileFor(clubId: number, now: number): Profile {
+    const hour = Math.floor(now / 3600);
+    if (hour !== profileHour) {
+      profileHour = hour;
+      profiles = new Map();
     }
-    let typical = typicalCache.get(clubId);
-    if (!typical) {
-      typical = typicalFromRows(since.iterate(clubId, now - TYPICAL_DAYS * 86_400));
-      typicalCache.set(clubId, typical);
+    let profile = profiles.get(clubId);
+    if (!profile) {
+      profile = profileFromRows(since.iterate(clubId, now - TYPICAL_DAYS * 86_400), now);
+      profiles.set(clubId, profile);
     }
-    return typical;
+    return profile;
   }
 
   function overview(now: number) {
-    const statuses = new Map(store.allStatuses().map((s) => [s.source, s]));
-    const at = localParts(now);
+    const allStatuses = store.allStatuses();
+    const statuses = new Map(allStatuses.map((s) => [s.source, s]));
     const clubs = allClubs.all().map((club) => {
-      const lastOk = statuses.get(club.source)?.lastOk ?? 0;
-      const sourceFresh = now - lastOk < FRESH_SECONDS;
-      const rows = recent.all(club.id).reverse();
-      const last = interpret(rows).at(-1);
+      const sourceFresh = now - (statuses.get(club.source)?.lastOk ?? 0) < FRESH_SECONDS;
+      const seenFresh = club.last_seen !== null && now - club.last_seen < FRESH_SECONDS;
+      const last = interpret(since.all(club.id, now - FRESH_SECONDS - NEIGHBOUR_SECONDS)).at(-1);
       const hasCurrent = !!last && now - last[0] < FRESH_SECONDS;
-      const pct = hasCurrent ? last[1] : null;
-      const state = !sourceFresh ? 'stale' : pct === null ? 'closed' : 'open';
+      let state: 'open' | 'closed' | 'stale' = 'stale';
+      if (sourceFresh && seenFresh) {
+        if (club.last_closed) state = 'closed';
+        else if (hasCurrent) state = last[1] === null ? 'closed' : 'open';
+      }
+      const at = localParts(hasCurrent ? last[0] : now);
       return {
         slug: club.slug,
         name: club.name,
@@ -176,36 +254,47 @@ export function createReader(store: Store) {
         address: club.address,
         source: club.source,
         state,
-        pct: state === 'open' ? pct : null,
-        ts: last?.[0] ?? null,
-        typical: typicalFor(club.id, now)[at.dow]![at.hour] ?? null,
+        pct: state === 'open' ? last![1] : null,
+        ts: state === 'closed' ? club.last_seen : (last?.[0] ?? null),
+        // Compared against the hour the reading was actually taken.
+        typical: profileFor(club.id, now).values[at.dow]![at.hour] ?? null,
       };
     });
-    return { now, updated: Math.max(0, ...[...statuses.values()].map((s) => s.lastOk ?? 0)) || null, clubs };
+    const delayed = allStatuses
+      .filter((s) => s.lastError && now - (s.lastOk ?? 0) >= FRESH_SECONDS)
+      .map((s) => s.source);
+    return { now, updated: Math.max(0, ...allStatuses.map((s) => s.lastOk ?? 0)) || null, delayed, clubs };
   }
 
   function club(slug: string, days: 1 | 7 | 30, now: number) {
     const row = clubBySlug.get(slug);
     if (!row) return null;
-    const at = localParts(now);
-    const dayStart = now - at.secondsIntoDay;
+    const dayHours = dayHoursAt(now);
+    const dayStart = dayHours[0]!;
     const from = days === 1 ? dayStart : now - days * 86_400;
-    // One earlier reading gives the first point of the range its context.
+    // Earlier readings give the first points of the range their context.
     const points = interpret(since.all(row.id, from - NEIGHBOUR_SECONDS)).filter((p) => p[0] >= from);
+    const profile = profileFor(row.id, now);
     return {
       now,
       days,
       dayStart,
-      dow: at.dow,
+      dayEnd: dayHours[24],
+      dayHours,
+      dow: localParts(now).dow,
       club: { slug: row.slug, name: row.name, city: row.city, address: row.address, source: row.source },
       points,
-      typical: typicalFor(row.id, now),
+      typical: profile.values,
+      typicalDays: profile.days,
     };
   }
 
+  // LemonGym must be current. Other sources can legitimately pause overnight.
   function healthy(now: number): boolean {
-    const lastOk = store.getStatus('lemongym')?.lastOk;
-    return !!lastOk && now - lastOk < FRESH_SECONDS;
+    const statuses = store.allStatuses();
+    const lemon = statuses.find((s) => s.source === 'lemongym');
+    if (!lemon?.lastOk || now - lemon.lastOk >= FRESH_SECONDS) return false;
+    return statuses.every((s) => (s.lastOk ? now - s.lastOk < SLOW_SOURCE_SECONDS : !s.lastError));
   }
 
   return { overview, club, healthy };

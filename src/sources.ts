@@ -26,42 +26,39 @@ export function parseLemonGym(body: string): Reading[] {
   if (typeof html !== 'string') throw new Error('LemonGym response has no content');
 
   const readings: Reading[] = [];
-  let outOfRange = 0;
+  let cards = 0;
   for (const section of html.split(/(?=<h5[\s>])/).slice(1)) {
     const city = text(/<h5[^>]*>([\s\S]*?)<\/h5>/.exec(section)?.[1] ?? '');
-    const club =
-      /<h6[^>]*xs-small[^>]*>([\s\S]*?)<\/h6>\s*<p[^>]*>([\s\S]*?)<\/p>[\s\S]*?clubs-occupancy__percentage[^>]*>\s*(\d+)\s*%/g;
-    for (const m of section.matchAll(club)) {
-      const pct = Number(m[3]);
-      // The source occasionally reports values such as 102. Drop only that club.
-      if (pct > 100) {
-        outOfRange++;
-        continue;
-      }
-      readings.push({ name: cleanClubName(text(m[1]!)), city, address: text(m[2]!), pct });
+    // Each field is read inside its own card, so a gap can't borrow a neighbour's value.
+    for (const card of section.split(/(?=<div class="clubs-occupancy">)/).filter((c) => c.startsWith('<div class="clubs-occupancy">'))) {
+      cards++;
+      const name = cleanClubName(text(/<h6[^>]*xs-small[^>]*>([\s\S]*?)<\/h6>/.exec(card)?.[1] ?? ''));
+      const address = text(/<p[^>]*>([\s\S]*?)<\/p>/.exec(card)?.[1] ?? '');
+      if (!name || !address || !city) throw new Error('LemonGym markup changed: incomplete club card');
+      const rate = /clubs-occupancy__percentage[^>]*>\s*(\d+)\s*%/.exec(card);
+      // The source occasionally reports values such as 102. Skip only that club.
+      if (!rate || Number(rate[1]) > 100) continue;
+      readings.push({ name, city, address, pct: Number(rate[1]) });
     }
   }
-
-  const expected = html.match(/clubs-occupancy__percentage[\s"]/g)?.length ?? 0;
-  if (readings.length + outOfRange !== expected || readings.length < MIN_LEMON_CLUBS) {
-    throw new Error(`LemonGym markup changed: parsed ${readings.length} of ${expected} clubs`);
+  if (readings.length < MIN_LEMON_CLUBS) {
+    throw new Error(`LemonGym markup changed: parsed ${readings.length} of ${cards} clubs`);
   }
   return readings;
 }
 
 export function parseZalgiris(body: string): Reading[] {
-  const pct = (JSON.parse(body) as { percent?: unknown }).percent;
-  const value = typeof pct === 'string' && /^\d+$/.test(pct) ? Number(pct) : pct;
-  // The pool reports 0 or nothing when closed, so only real readings count.
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 99) return [];
-  return [
-    {
-      name: 'Kauno Žalgirio baseinas',
-      city: 'Kauno klubai',
-      address: 'Karaliaus Mindaugo pr. 50, Kaunas',
-      pct: value,
-    },
-  ];
+  const data = JSON.parse(body) as { percent?: unknown } | null;
+  if (!data || typeof data !== 'object' || !('percent' in data)) throw new Error('Zalgiris response has no percent');
+  const raw = data.percent;
+  const value = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+  const club = { name: 'Kauno Žalgirio baseinas', city: 'Kauno klubai', address: 'Karaliaus Mindaugo pr. 50, Kaunas' };
+  // The pool reports 0, empty or 100 when it has no live count.
+  if (value === null || value === '' || value === 0 || value === 100) return [{ ...club, pct: null }];
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 99) {
+    throw new Error('Zalgiris response has an invalid percent');
+  }
+  return [{ ...club, pct: value }];
 }
 
 // Impuls lists every club under one "Vilniaus klubai" heading.

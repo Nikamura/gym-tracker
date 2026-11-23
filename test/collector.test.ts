@@ -20,7 +20,7 @@ test('parses every club in the live LemonGym response', () => {
   const rows = parseLemonGym(fixture);
   assert.equal(rows.length, 21);
   assert.equal(new Set(rows.map((r) => slugify(r.name))).size, 21);
-  assert.ok(rows.every((r) => r.city && r.address && r.pct >= 0 && r.pct <= 100));
+  assert.ok(rows.every((r) => r.city && r.address && r.pct !== null && r.pct >= 0 && r.pct <= 100));
 });
 
 test('rejects changed LemonGym markup', () => {
@@ -33,13 +33,13 @@ test('drops only the club with an out-of-range value', () => {
   parsed.data.content = parsed.data.content.replace(/(clubs-occupancy__percentage[^>]*>\s*)\d+%/, '$1102%');
   const rows = parseLemonGym(JSON.stringify(parsed));
   assert.equal(rows.length, 20);
-  assert.ok(rows.every((r) => r.pct <= 100));
+  assert.ok(rows.every((r) => r.pct !== null && r.pct <= 100));
 });
 
 test('parses Impuls clubs into their real cities', () => {
   const rows = parseImpuls(impulsFixture);
   assert.equal(rows.length, 5);
-  assert.ok(rows.every((r) => r.address && r.pct >= 0 && r.pct <= 100));
+  assert.ok(rows.every((r) => r.address && r.pct !== null && r.pct >= 0 && r.pct <= 100));
   const city = (name: string) => rows.find((r) => r.name === name)?.city;
   assert.equal(city('Kareivių'), 'Vilniaus klubai');
   assert.equal(city('Klaipėdos'), 'Klaipėdos klubai');
@@ -63,8 +63,10 @@ test('never merges similarly named clubs across operators', () => {
 
 test('ignores closed pool readings', () => {
   assert.equal(parseZalgiris('{"percent":27}')[0]?.pct, 27);
-  assert.deepEqual(parseZalgiris('{"percent":0}'), []);
-  assert.deepEqual(parseZalgiris('{"percent":null}'), []);
+  assert.equal(parseZalgiris('{"percent":0}')[0]?.pct, null);
+  assert.equal(parseZalgiris('{"percent":null}')[0]?.pct, null);
+  assert.throws(() => parseZalgiris('{"percent":"N/A"}'), /invalid percent/);
+  assert.throws(() => parseZalgiris('{}'), /no percent/);
 });
 
 test('merges marketing labels without merging venues', () => {

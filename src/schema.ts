@@ -7,6 +7,9 @@ export const clubs = sqliteTable('clubs', {
   city: text('city').notNull(),
   address: text('address').notNull(),
   source: text('source').notNull(),
+  // Last poll that included this club, and whether it reported closed.
+  lastSeen: integer('last_seen'),
+  lastClosed: integer('last_closed').notNull().default(0),
 });
 
 // Raw source value. 100 is ambiguous (full or closed), so it is stored as

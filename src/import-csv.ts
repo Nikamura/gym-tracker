@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanClubName, slugify } from './clubs.ts';
 import { openStore, type Store } from './db.ts';
+import { COMPACTED_BEFORE } from './retention.ts';
 
 const POOL = 'Kauno Žalgirio baseinas';
 
@@ -16,6 +17,8 @@ export function importCsvDir(store: Store, dir: string, untilTs = Infinity): { r
   );
   const insertSample = sqlite.prepare(`INSERT OR IGNORE INTO samples (club_id, ts, pct) VALUES (?, ?, ?)`);
 
+  // Hours already compacted must not be mixed with their original raw rows.
+  const compactedBefore = Number(store.getMeta(COMPACTED_BEFORE) ?? 0);
   let rows = 0;
   let skipped = 0;
   const importFile = sqlite.transaction((path: string) => {
@@ -23,12 +26,12 @@ export function importCsvDir(store: Store, dir: string, untilTs = Infinity): { r
     for (const line of readFileSync(path, 'utf8').trim().split('\n').slice(1)) {
       const [timestamp, city, club, address, occupancy] = line.split(',');
       const ts = Date.parse(timestamp ?? '') / 1000;
-      const pct = Number(occupancy);
+      const pct = /^\d+$/.test(occupancy ?? '') ? Number(occupancy) : NaN;
       if (!city || !club || !address || !Number.isInteger(ts) || !Number.isInteger(pct) || pct < 0 || pct > 100) {
         skipped++;
         continue;
       }
-      if (ts >= untilTs) continue;
+      if (ts >= untilTs || ts < compactedBefore) continue;
       const name = cleanClubName(club);
       const slug = slugify(name);
       let id = clubIds.get(slug);
@@ -51,9 +54,14 @@ export function importCsvDir(store: Store, dir: string, untilTs = Infinity): { r
 
 if (import.meta.main) {
   const dir = process.argv[2] ?? 'data';
+  const cutoff = process.argv[3] ? Date.parse(process.argv[3]) / 1000 : Infinity;
+  if (Number.isNaN(cutoff)) {
+    console.error('Invalid cutoff timestamp');
+    process.exit(1);
+  }
   const store = openStore(process.env.DB_PATH ?? 'db/gym-tracker.sqlite');
   // Optional ISO cutoff, so the old workflow cannot add rows after the collector started.
-  const result = importCsvDir(store, dir, process.argv[3] ? Date.parse(process.argv[3]) / 1000 : Infinity);
+  const result = importCsvDir(store, dir, cutoff);
   console.log(JSON.stringify({ ...result, ...store.counts(), maxRssMb: Math.round(process.resourceUsage().maxRSS / 1024) }));
   store.close();
 }

@@ -1,44 +1,58 @@
 import type { Store } from './db.ts';
+import { resolveReadings } from './read.ts';
 
 const DAY = 86_400;
+const HOUR = 3600;
 export const RAW_RETENTION_DAYS = 400; // 15-minute samples
 export const HOURLY_RETENTION_DAYS = 5 * 365; // then deleted
+export const COMPACTED_BEFORE = 'compacted_before';
 
 // Keeps storage bounded: old samples become one row per club per hour, and
-// rows past the hourly window are removed. Safe to run repeatedly.
+// rows past the hourly window are removed. Compacted hours are never reprocessed.
 export function applyRetention(store: Store, now: number = Math.floor(Date.now() / 1000)) {
-  const rawCutoff = Math.floor((now - RAW_RETENTION_DAYS * DAY) / 3600) * 3600;
+  const rawCutoff = Math.floor((now - RAW_RETENTION_DAYS * DAY) / HOUR) * HOUR;
   const deleteCutoff = now - HOURLY_RETENTION_DAYS * DAY;
   const { sqlite } = store;
+  const from = Number(store.getMeta(COMPACTED_BEFORE) ?? 0);
 
   const result = sqlite.transaction(() => {
-    sqlite.exec(`
-      DROP TABLE IF EXISTS temp.hourly;
-      CREATE TEMP TABLE hourly (club_id INTEGER, bucket INTEGER, pct INTEGER, PRIMARY KEY (club_id, bucket)) WITHOUT ROWID;
-    `);
-    // 100 can mean closed, so it only survives when the whole hour is 100.
-    sqlite
-      .prepare(
-        `INSERT INTO temp.hourly
-         SELECT club_id, ts / 3600 * 3600,
-                COALESCE(CAST(ROUND(AVG(CASE WHEN pct < 100 THEN pct END)) AS INTEGER), 100)
-         FROM samples WHERE ts < ?
-         GROUP BY club_id, ts / 3600
-         HAVING COUNT(*) > 1 OR MIN(ts) % 3600 <> 0`,
-      )
-      .run(rawCutoff);
-    const removed = sqlite
-      .prepare(
-        `DELETE FROM samples WHERE ts < ? AND EXISTS (
-           SELECT 1 FROM temp.hourly h WHERE h.club_id = samples.club_id AND h.bucket = samples.ts / 3600 * 3600
-         )`,
-      )
-      .run(rawCutoff).changes;
-    const inserted = sqlite
-      .prepare(`INSERT INTO samples (club_id, ts, pct) SELECT club_id, bucket, pct FROM temp.hourly`)
-      .run().changes;
-    const expired = sqlite.prepare(`DELETE FROM samples WHERE ts < ?`).run(deleteCutoff).changes;
-    sqlite.exec(`DROP TABLE temp.hourly`);
+    const clubIds = sqlite.prepare<[], { id: number }>('SELECT id FROM clubs').all();
+    const rowsFor = sqlite.prepare<[number, number, number], { ts: number; pct: number }>(
+      'SELECT ts, pct FROM samples WHERE club_id = ? AND ts >= ? AND ts < ? ORDER BY ts',
+    );
+    const remove = sqlite.prepare('DELETE FROM samples WHERE club_id = ? AND ts >= ? AND ts < ?');
+    const insert = sqlite.prepare('INSERT INTO samples (club_id, ts, pct) VALUES (?, ?, ?)');
+    let removed = 0;
+    let inserted = 0;
+
+    if (rawCutoff > from) {
+      for (const { id } of clubIds) {
+        // Neighbouring rows outside the range decide whether a 100 means full.
+        const rows = rowsFor.all(id, from - HOUR, rawCutoff + HOUR);
+        const resolved = resolveReadings(rows.map((r) => r.ts), rows.map((r) => r.pct), rows.length);
+        const buckets = new Map<number, { count: number; sum: number; usable: number; first: number }>();
+        rows.forEach((row, i) => {
+          if (row.ts < from || row.ts >= rawCutoff) return;
+          const start = Math.floor(row.ts / HOUR) * HOUR;
+          const bucket = buckets.get(start) ?? { count: 0, sum: 0, usable: 0, first: row.ts };
+          bucket.count++;
+          if (resolved[i] !== -1) {
+            bucket.sum += resolved[i]!;
+            bucket.usable++;
+          }
+          buckets.set(start, bucket);
+        });
+        for (const [start, bucket] of buckets) {
+          if (bucket.count === 1 && bucket.first === start) continue;
+          removed += remove.run(id, start, start + HOUR).changes;
+          // 100 is the source's own closed marker when nothing usable remains.
+          insert.run(id, start, bucket.usable ? Math.round(bucket.sum / bucket.usable) : 100);
+          inserted++;
+        }
+      }
+      store.setMeta(COMPACTED_BEFORE, String(rawCutoff));
+    }
+    const expired = sqlite.prepare('DELETE FROM samples WHERE ts < ?').run(deleteCutoff).changes;
     return { downsampled: removed - inserted, expired };
   })();
 

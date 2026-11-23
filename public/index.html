@@ -176,6 +176,7 @@ h2 { font-size: 15px; font-weight: 660; }
 .cell { display: grid; place-items: center; aspect-ratio: 1 / .72; min-width: 0; min-height: 20px; overflow: hidden; border-radius: 3px; padding: 0; font-size: 11.5px; font-weight: 620; line-height: 1; font-variant-numeric: tabular-nums; }
 .unit { color: var(--muted); font-size: 12.5px; }
 .cell.nil { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.cell.low { outline: 1px dashed currentColor; outline-offset: -3px; }
 .cell.now { position: relative; z-index: 1; outline: 2px solid var(--ink); outline-offset: 0; }
 .scale { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 9px; color: var(--muted); font-size: 11.5px; }
 .scale i { width: 15px; height: 9px; border-radius: 2px; margin-right: -4px; }
@@ -250,6 +251,8 @@ const LEVELS = [
 const GAP_SECONDS = 75 * 60;
 const DAY_START_HOUR = 6;
 const FEW_READINGS = 8;
+const LOW_CONFIDENCE_DAYS = 6;
+const FRESH_SECONDS = 45 * 60;
 const VISIT_HOURS = 2;
 // A visit must start and finish inside the window, so nothing suggests 3am.
 const WINDOWS = [
@@ -349,8 +352,11 @@ $('theme').addEventListener('click', () => {
 });
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
 
+// Live values expire in the browser too, in case refreshes stop working.
+const isLive = (c) => c.state === 'open' && c.pct !== null && !!c.ts && Date.now() / 1000 - c.ts < FRESH_SECONDS;
+
 function comparison(club) {
-  if (club.state !== 'open' || club.pct === null || club.typical === null) return '';
+  if (!isLive(club) || club.typical === null) return '';
   const diff = club.pct - club.typical;
   if (Math.abs(diff) < 5) return 'About usual';
   return `${Math.abs(diff)} pts ${diff < 0 ? 'quieter' : 'busier'} than usual`;
@@ -364,7 +370,7 @@ function renderCities() {
 
 function clubRow(c) {
   const fav = state.favourites.has(c.slug);
-  const open = c.state === 'open' && c.pct !== null;
+  const open = isLive(c);
   const lvl = open ? level(c.pct) : null;
   const sub = open ? [lvl.label, comparison(c)].filter(Boolean).join(' · ') : stateLabel(c);
   return `<li class="row${c.slug === state.slug ? ' selected' : ''}">
@@ -380,7 +386,7 @@ function clubRow(c) {
 function renderList() {
   if (!state.overview) return;
   const clubs = state.overview.clubs.filter((c) => state.city === 'all' || c.city === state.city);
-  const rank = (c) => (c.state === 'open' && c.pct !== null ? c.pct : 1000);
+  const rank = (c) => (isLive(c) ? c.pct : 1000);
   const sorted = [...clubs].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'lt'));
   const favs = sorted.filter((c) => state.favourites.has(c.slug));
   const rest = sorted.filter((c) => !state.favourites.has(c.slug));
@@ -399,20 +405,28 @@ function renderUpdated() {
   const el = $('updated');
   if (!o?.updated) { el.classList.add('stale'); el.lastElementChild.textContent = 'No data'; return; }
   const minutes = Math.max(0, Math.round((Date.now() / 1000 - o.updated) / 60));
-  const stale = minutes >= 45;
+  const stale = minutes >= FRESH_SECONDS / 60;
   el.classList.toggle('stale', stale);
   el.lastElementChild.textContent = minutes < 1 ? 'Updated just now' : minutes < 90 ? `Updated ${minutes} min ago` : `Updated ${fmtDay.format(o.updated * 1000)}, ${time(o.updated)}`;
-  $('notice').style.display = stale ? 'block' : 'none';
-  $('notice').textContent = stale ? 'Live updates are delayed. Figures below may be out of date.' : '';
+  const delayed = (o.delayed || []).map((id) => OPERATORS[id]?.name || id);
+  const message = state.fetchFailed ? 'Could not reach the server. Showing the last loaded data.'
+    : stale ? 'Live updates are delayed. Figures below may be out of date.'
+    : delayed.length ? `Updates are delayed for ${delayed.join(', ')}.` : '';
+  $('notice').style.display = message ? 'block' : 'none';
+  $('notice').textContent = message;
+  if (state.wasStale !== undefined && state.wasStale !== stale) { renderList(); renderDetail(); }
+  state.wasStale = stale;
 }
 
-function bestSlot(day, win, earliest = 0) {
+function bestSlot(day, dates, win, earliest = 0) {
   let best = null;
   for (let h = Math.max(win.from, earliest); h + VISIT_HOURS <= win.to; h++) {
     const values = day.slice(h, h + VISIT_HOURS);
     if (values.some((v) => v === null || v === undefined)) continue;
-    const pct = Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
-    if (!best || pct < best.pct) best = { hour: h, pct };
+    const score = values.reduce((sum, v) => sum + v, 0) / values.length;
+    if (!best || score < best.score) {
+      best = { hour: h, score, pct: Math.round(score), low: dates.slice(h, h + VISIT_HOURS).some((n) => n < LOW_CONFIDENCE_DAYS) };
+    }
   }
   return best;
 }
@@ -420,18 +434,19 @@ function bestSlot(day, win, earliest = 0) {
 function plan(d) {
   const win = WINDOWS.find((w) => w.id === state.window) || WINDOWS[0];
   const [hour, minute] = time(d.now).split(':').map(Number);
-  const earliest = minute <= 15 ? hour : hour + 1;
+  // A slot that has already started can't be a full visit any more.
+  const earliest = minute === 0 ? hour : hour + 1;
   const days = Array.from({ length: 7 }, (_, offset) => {
     const dow = (d.dow + offset) % 7;
     return {
       offset, dow,
       label: offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : DAYS[dow],
-      slot: bestSlot(d.typical[dow] || [], win, offset === 0 ? earliest : 0),
+      slot: bestSlot(d.typical[dow] || [], d.typicalDays[dow] || [], win, offset === 0 ? earliest : 0),
     };
   });
   const usable = days.filter((x) => x.slot);
   const next = usable[0] || null;
-  const top = usable.reduce((a, b) => (!a || b.slot.pct < a.slot.pct ? b : a), null);
+  const top = usable.reduce((a, b) => (!a || b.slot.score < a.slot.score ? b : a), null);
   return { win, days, next, top };
 }
 
@@ -458,7 +473,7 @@ function bestCard(d, club, open) {
     <div class="chips" role="group" aria-label="When can you go?">${chips}</div>
     <div class="answer">
       <span class="when tnum">${esc(next.label)} ${slotText(next.slot)}</span>
-      <span class="how tnum"><i class="dot l${levelIndex(next.slot.pct)}"></i>Usually ${next.slot.pct}%, ${esc(level(next.slot.pct).label.toLowerCase())}</span>
+      <span class="how tnum"><i class="dot l${levelIndex(next.slot.pct)}"></i>Usually ${next.slot.pct}%, ${esc(level(next.slot.pct).label.toLowerCase())}${next.slot.low ? ', limited data' : ''}</span>
     </div>
     ${verdict ? `<p class="verdict">${verdict}</p>` : ''}${extra}
     <div class="week" aria-label="Best start time for each of the next 7 days">${week}</div>
@@ -476,7 +491,7 @@ function renderDetail() {
   }
   const d = state.detail;
   const c = state.overview?.clubs.find((x) => x.slug === d.club.slug) || { state: 'stale', pct: null, typical: null };
-  const open = c.state === 'open' && c.pct !== null;
+  const open = isLive(c);
   const lvl = open ? level(c.pct) : null;
   const cmp = comparison(c);
   const seen = c.ts ? `Reading from ${time(c.ts)}` : '';
@@ -493,12 +508,12 @@ function renderDetail() {
     ${bestCard(d, c, open)}
     <section>
       <div class="sec-head">
-        <h2>${state.days === 1 ? 'Today' : `Last ${state.days} days`}</h2>
+        <h2>${d.days === 1 ? 'Today' : `Last ${d.days} days`}</h2>
         <div class="seg" id="ranges" role="group" aria-label="Time range">
           ${[[1, 'Today'], [7, '7 days'], [30, '30 days']].map(([v, l]) => `<button type="button" data-days="${v}" aria-pressed="${state.days === v}">${l}</button>`).join('')}
         </div>
       </div>
-      ${state.days === 1 ? '<div class="legend"><span><i></i>Today</span><span><i class="t"></i>Usual for ' + DAY_NAMES[d.dow] + '</span></div>' : `<div class="legend"><span><i class="b"></i>Busiest reading each day, ${hh(WINDOWS[0].from)}–${hh(WINDOWS[0].to)}</span><span><i class="b few"></i>Fewer than ${FEW_READINGS} readings</span><span><i class="b closed"></i>Closed or no reading</span></div>`}
+      ${d.days === 1 ? '<div class="legend"><span><i></i>Today</span><span><i class="t"></i>Usual for ' + DAY_NAMES[d.dow] + '</span></div>' : `<div class="legend"><span><i class="b"></i>Busiest reading each day, ${hh(WINDOWS[0].from)}–${hh(WINDOWS[0].to)}</span><span><i class="b few"></i>Fewer than ${FEW_READINGS} readings</span><span><i class="b closed"></i>Closed or no reading</span></div>`}
       <div class="chart" id="line" role="img" aria-label="${esc(chartSummary(d))}"></div>
     </section>
     <section>
@@ -507,13 +522,14 @@ function renderDetail() {
       <div class="scale"><span>0%</span><i class="ramp" style="background:${heatLegend()}"></i><span>${heatPeak(d)}%</span></div>
       <details><summary>View as table</summary><div class="table-wrap">${typicalTable(d)}</div></details>
     </section>
-    <p class="note">Based on the median of the last 6 months, Lithuanian time. Best times assume a 2-hour visit. A reading of 100% is shown as full only when the club was already busy, because the source also reports 100% when a club is closed.</p>`;
+    <p class="note">Based on the last 6 months in Lithuanian time. Recent weeks count more, and public holidays and days a club looked closed are left out. Dashed boxes have fewer than ${LOW_CONFIDENCE_DAYS} days of data. Best times assume a 2-hour visit. A reading of 100% is shown as full only when the club was already busy, because the source also reports 100% when a club is closed.</p>`;
   drawLine();
 }
 
 function chartSummary(d) {
-  const known = d.points.filter((p) => p[1] !== null);
-  if (!known.length) return 'No readings in this period.';
+  const from = d.days === 1 ? d.dayHours[DAY_START_HOUR] : 0;
+  const known = d.points.filter((p) => p[1] !== null && p[0] >= from);
+  if (!known.length) return d.days === 1 ? 'No readings since 06:00 yet.' : 'No readings in this period.';
   const values = known.map((p) => p[1]);
   return `${known.length} readings, from ${Math.min(...values)}% to ${Math.max(...values)}%.`;
 }
@@ -565,11 +581,13 @@ function heatmap(d) {
     const marks = dayMarks(day);
     day.forEach((v, h) => {
       if (h < DAY_START_HOUR) return;
-      const label = `${DAY_NAMES[dow]} ${hh(h)}: ${v === null ? 'not enough data' : 'usually ' + v + '%'}`;
+      const dates = d.typicalDays[dow]?.[h] ?? 0;
+      const label = `${DAY_NAMES[dow]} ${hh(h)}: ${v === null ? 'not enough data' : `usually ${v}%, from ${dates} days`}`;
       const now = dow === d.dow && h === nowHour ? ' now' : '';
+      const low = v !== null && dates < LOW_CONFIDENCE_DAYS && !now ? ' low' : '';
       html += v === null
         ? `<button type="button" class="cell nil${now}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`
-        : `<button type="button" class="cell${now}" style="${heatStyle(v, peak)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${marks.has(h) || now ? v : ''}</button>`;
+        : `<button type="button" class="cell${now}${low}" style="${heatStyle(v, peak)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${marks.has(h) || now ? v : ''}</button>`;
     });
   });
   return html + '</div>';
@@ -665,8 +683,8 @@ function drawLine() {
   if (d.days !== 1) return drawDaily(host, d);
   const W = Math.max(280, host.clientWidth), H = host.clientHeight || 250;
   const m = { t: 10, r: 10, b: 24, l: 34 };
-  const from = d.dayStart + DAY_START_HOUR * 3600;
-  const to = d.dayStart + 86400;
+  const from = d.dayHours[DAY_START_HOUR];
+  const to = d.dayHours[24];
   const x = (ts) => m.l + ((ts - from) / (to - from)) * (W - m.l - m.r);
   const y = (v) => m.t + (1 - v / 100) * (H - m.t - m.b);
   const visible = d.points.filter((p) => p[0] >= from);
@@ -690,7 +708,7 @@ function drawLine() {
     s += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${f(y(v))}" y2="${f(y(v))}"/><text x="${m.l - 7}" y="${f(y(v) + 3.5)}" text-anchor="end">${v}</text>`;
   }
   const ticks = [];
-  for (let h = DAY_START_HOUR; h <= 24; h += W < 460 ? 6 : 3) ticks.push([d.dayStart + h * 3600, h === 24 ? '' : String(h).padStart(2, '0')]);
+  for (let h = DAY_START_HOUR; h <= 24; h += W < 460 ? 6 : 3) ticks.push([d.dayHours[h], h === 24 ? '' : String(h).padStart(2, '0')]);
   for (const [t, label] of ticks) {
     const px = x(t);
     if (label) s += `<text x="${f(Math.min(W - m.r - 12, Math.max(m.l + 8, px)))}" y="${H - 6}" text-anchor="middle">${esc(label)}</text>`;
@@ -701,7 +719,7 @@ function drawLine() {
     day.forEach((v, h) => {
       if (h < DAY_START_HOUR) return;
       if (v === null) { pen = false; return; }
-      path += `${pen ? 'L' : 'M'}${f(x(d.dayStart + (h + .5) * 3600))} ${f(y(v))}`;
+      path += `${pen ? 'L' : 'M'}${f(x((d.dayHours[h] + d.dayHours[h + 1]) / 2))} ${f(y(v))}`;
       pen = true;
     });
     if (path) s += `<path class="ln t" d="${path}"/>`;
@@ -712,7 +730,7 @@ function drawLine() {
     s += `<path class="area" d="${line}L${f(x(seg.at(-1)[0]))} ${f(y(0))}L${f(x(seg[0][0]))} ${f(y(0))}Z"/><path class="ln" d="${line}"/>`;
   }
   s += `<line class="cross" id="cross" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/><circle class="hover-dot" id="hover-dot" r="4.5" visibility="hidden"/></svg><div class="tooltip" id="line-tip"></div>`;
-  host.innerHTML = points.length ? s : '<div class="empty">No readings in this period yet.</div>';
+  host.innerHTML = points.length ? s : '<div class="empty">No readings since 06:00 yet.</div>';
   if (!points.length) return;
 
   const cross = host.querySelector('#cross'), dot = host.querySelector('#hover-dot'), tip = host.querySelector('#line-tip');
@@ -759,7 +777,11 @@ document.addEventListener('click', (event) => {
     renderDetail();
   } else if (t.dataset.days) {
     state.days = Number(t.dataset.days);
+    // Never show the previous range under the new range's label.
+    state.detail = null;
+    state.detailError = false;
     writeUrl();
+    renderDetail();
     loadDetail();
   } else if (t.id === 'back') {
     state.slug = null; state.detail = null; state.detailError = false;
@@ -807,6 +829,7 @@ async function loadDetail() {
 async function refresh() {
   try {
     state.overview = await getJson('/api/overview');
+    state.fetchFailed = false;
     if (state.legacyClub) {
       const match = state.overview.clubs.find((c) => c.name === state.legacyClub);
       state.legacyClub = '';
@@ -822,8 +845,8 @@ async function refresh() {
     if (!state.slug) renderDetail();
   } catch {
     if (!state.overview) $('clubs').innerHTML = '<li class="empty" style="height:180px">Could not load clubs. Retrying…</li>';
-    $('notice').style.display = 'block';
-    $('notice').textContent = 'Could not reach the server. Showing the last loaded data.';
+    state.fetchFailed = true;
+    renderUpdated();
   }
 }
 

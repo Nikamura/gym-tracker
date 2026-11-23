@@ -18,18 +18,38 @@ if (!proxyUrl) {
   console.error('PROXY_URL is required');
   process.exit(1);
 }
-const dispatcher = new ProxyAgent(proxyUrl);
+let dispatcher: ProxyAgent;
+try {
+  dispatcher = new ProxyAgent(proxyUrl);
+} catch {
+  // The error object would contain the credential-bearing URL.
+  console.error('PROXY_URL is invalid');
+  process.exit(1);
+}
+
+const MAX_RESPONSE_BYTES = 5_000_000;
+
+async function readLimited(body: AsyncIterable<Uint8Array> | null): Promise<string> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of body ?? []) {
+    size += chunk.length;
+    if (size > MAX_RESPONSE_BYTES) throw new Error('Response too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 const fetcher: Fetcher = async (source) => {
   const res = await fetch(source.url, {
     ...source.init,
-    headers: { 'User-Agent': 'Mozilla/5.0', ...source.init?.headers },
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Cache-Control': 'no-cache', ...source.init?.headers },
     dispatcher,
     redirect: 'error',
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new HttpError(res.status);
-  return res.text();
+  return readLimited(res.body as AsyncIterable<Uint8Array> | null);
 };
 
 const store = openStore(process.env.DB_PATH ?? 'db/gym-tracker.sqlite');
