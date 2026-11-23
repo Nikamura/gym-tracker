@@ -64,6 +64,35 @@ export function parseZalgiris(body: string): Reading[] {
   ];
 }
 
+// Impuls lists every club under one "Vilniaus klubai" heading.
+const IMPULS_CITY_BY_CLUB: Record<string, string> = {
+  Klaipėdos: 'Klaipėdos klubai',
+  Panevėžio: 'Panevėžio klubai',
+};
+const MIN_IMPULS_CLUBS = 3;
+
+export function parseImpuls(body: string): Reading[] {
+  const readings: Reading[] = [];
+  let cards = 0;
+  for (const block of body.split(/(?=<div class="occupancy-city)/).filter((b) => b.startsWith('<div class="occupancy-city'))) {
+    const heading = text(/<h4[^>]*>([\s\S]*?)<\/h4>/.exec(block)?.[1] ?? '');
+    for (const card of block.split(/(?=<div class="occupancy-card">)/).filter((c) => c.startsWith('<div class="occupancy-card">'))) {
+      cards++;
+      const name = text(/<div class="text-xl font-bold">([\s\S]*?)<\/div>/.exec(card)?.[1] ?? '');
+      const address = text(/<div class="text-neutral-600">([\s\S]*?)<\/div>/.exec(card)?.[1] ?? '');
+      if (!name || !address || !heading) throw new Error('Impuls markup changed: incomplete club card');
+      // A card without a rate has no current reading.
+      const rate = /occupancy-card-rate[^>]*>\s*(\d+)\s*%/.exec(card);
+      if (!rate || Number(rate[1]) > 100) continue;
+      readings.push({ name, city: IMPULS_CITY_BY_CLUB[name] ?? heading, address, pct: Number(rate[1]) });
+    }
+  }
+  if (cards < MIN_IMPULS_CLUBS || readings.length === 0) {
+    throw new Error(`Impuls markup changed: parsed ${readings.length} of ${cards} clubs`);
+  }
+  return readings;
+}
+
 export const SOURCES: Source[] = [
   {
     id: 'lemongym',
@@ -82,5 +111,10 @@ export const SOURCES: Source[] = [
       body: 'action=custom_current_capacity',
     },
     parse: parseZalgiris,
+  },
+  {
+    id: 'impuls',
+    url: 'https://www.impuls.lt/uzimtumas/',
+    parse: parseImpuls,
   },
 ];

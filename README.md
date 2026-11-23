@@ -8,12 +8,13 @@ See how busy gyms and pools in Lithuania are right now, and when it is best to g
 
 - [LemonGym](https://www.lemongym.lt/): clubs in Vilnius, Kaunas, and Šiauliai
 - [Kauno Žalgirio baseinas](https://www.zalgiriobaseinas.lt/): pool in Kaunas
+- [Impuls](https://www.impuls.lt/uzimtumas/): clubs in Vilnius, Klaipėda, and Panevėžys
 
 ## How it works
 
 A small TypeScript service runs in Docker on the homelab:
 
-1. Every 15 minutes it reads both sources through the VPN proxy. Without a proxy it refuses to start, and on HTTP 403 or 429 it pauses that source for 6 hours.
+1. Every 15 minutes it reads each source through the VPN proxy. Without a proxy it refuses to start, and on HTTP 403 or 429 it pauses that source for 6 hours.
 2. Samples go into SQLite through Drizzle, at about 13 bytes each.
 3. The same service serves the JSON API and the static site in `public/`.
 

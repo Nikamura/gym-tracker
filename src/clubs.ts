@@ -10,6 +10,12 @@ export function cleanClubName(label: string): string {
     .trim();
 }
 
+// Older sources keep plain slugs so existing links work. New operators are
+// prefixed, so similarly named clubs from different chains can never merge.
+export function clubSlug(source: string, name: string): string {
+  return source === 'impuls' ? `impuls-${slugify(name)}` : slugify(name);
+}
+
 export function slugify(name: string): string {
   return name
     .toLocaleLowerCase('lt')

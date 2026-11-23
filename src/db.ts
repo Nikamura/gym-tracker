@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { slugify } from './clubs.ts';
+import { clubSlug } from './clubs.ts';
 import { clubs, samples, sourceStatus } from './schema.ts';
 
 export interface Reading {
@@ -49,7 +49,7 @@ export function openStore(path: string) {
       for (const r of readings) {
         const [club] = db
           .insert(clubs)
-          .values({ slug: slugify(r.name), name: r.name, city: r.city, address: r.address, source })
+          .values({ slug: clubSlug(source, r.name), name: r.name, city: r.city, address: r.address, source })
           .onConflictDoUpdate({
             target: clubs.slug,
             set: { name: r.name, city: r.city, address: r.address },

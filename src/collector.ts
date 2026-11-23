@@ -23,7 +23,7 @@ function safeMessage(error: unknown): string {
     const code = (error.cause as { code?: unknown } | undefined)?.code ?? (error as { code?: unknown }).code;
     if (typeof code === 'string') return code;
     if (error.name === 'TimeoutError') return 'Timeout';
-    if (error.message.startsWith('LemonGym')) return error.message;
+    if (/^(LemonGym|Impuls) /.test(error.message)) return error.message;
     return error.name;
   }
   return 'Unknown error';

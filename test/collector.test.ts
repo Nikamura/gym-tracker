@@ -3,14 +3,15 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { cleanClubName, slugify } from '../src/clubs.ts';
+import { cleanClubName, clubSlug, slugify } from '../src/clubs.ts';
 import { BLOCK_BACKOFF_SECONDS, HttpError, runSource } from '../src/collector.ts';
 import { openStore } from '../src/db.ts';
 import { importCsvDir } from '../src/import-csv.ts';
 import { RAW_RETENTION_DAYS, applyRetention } from '../src/retention.ts';
-import { parseLemonGym, parseZalgiris, type Source } from '../src/sources.ts';
+import { parseImpuls, parseLemonGym, parseZalgiris, type Source } from '../src/sources.ts';
 
 const fixture = readFileSync(new URL('./fixtures/lemongym.json', import.meta.url), 'utf8');
+const impulsFixture = readFileSync(new URL('./fixtures/impuls.html', import.meta.url), 'utf8');
 const memory = () => openStore(':memory:');
 const reading = { name: 'Pikas', city: 'Vilniaus klubai', address: 'Ukmergės g. 221, Vilnius', pct: 40 };
 const source: Source = { id: 'test', url: 'https://example.invalid', parse: () => [reading] };
@@ -33,6 +34,31 @@ test('drops only the club with an out-of-range value', () => {
   const rows = parseLemonGym(JSON.stringify(parsed));
   assert.equal(rows.length, 20);
   assert.ok(rows.every((r) => r.pct <= 100));
+});
+
+test('parses Impuls clubs into their real cities', () => {
+  const rows = parseImpuls(impulsFixture);
+  assert.equal(rows.length, 5);
+  assert.ok(rows.every((r) => r.address && r.pct >= 0 && r.pct <= 100));
+  const city = (name: string) => rows.find((r) => r.name === name)?.city;
+  assert.equal(city('Kareivių'), 'Vilniaus klubai');
+  assert.equal(city('Klaipėdos'), 'Klaipėdos klubai');
+  assert.equal(city('Panevėžio'), 'Panevėžio klubai');
+});
+
+test('keeps Impuls clubs with no current rate out of the sample', () => {
+  const noRate = impulsFixture.replace(/(occupancy-card-rate[^>]*>\s*)\d+%/, '$1');
+  assert.equal(parseImpuls(noRate).length, 4);
+});
+
+test('rejects changed Impuls markup', () => {
+  assert.throws(() => parseImpuls('<html>maintenance</html>'), /markup changed/);
+  assert.throws(() => parseImpuls(impulsFixture.replaceAll('occupancy-card-rate', 'renamed')), /markup changed/);
+});
+
+test('never merges similarly named clubs across operators', () => {
+  assert.equal(clubSlug('lemongym', 'Savanoriai'), 'savanoriai');
+  assert.equal(clubSlug('impuls', 'Savanoriai'), 'impuls-savanoriai');
 });
 
 test('ignores closed pool readings', () => {

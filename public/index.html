@@ -76,6 +76,9 @@ header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 
 #list-panel { overflow: hidden; }
 .list-head { padding: 10px; border-bottom: 1px solid var(--line); }
+#cities { overflow-x: auto; scrollbar-width: none; }
+#cities::-webkit-scrollbar { display: none; }
+#cities button { flex: 1 0 auto; padding: 4px 9px; }
 #clubs { list-style: none; padding: 4px; max-height: calc(100dvh - 158px); overflow-y: auto; overscroll-behavior: contain; }
 .group-label { padding: 12px 10px 4px; color: var(--muted); font-size: 12px; font-weight: 620; }
 .row { display: flex; align-items: center; border-radius: 9px; transition: background-color .12s ease; }
@@ -91,6 +94,7 @@ header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .op svg { width: 15px; height: 15px; display: block; }
 .op.lemon { background: #fff4c2; color: #eeb600; }
 .op.pool { background: #1f7fc4; color: #fff; }
+.op.impuls { background: #6a3fd1; color: #fff; }
 .operator { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 7px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
 .pick .val { font-size: 17px; font-weight: 680; text-align: right; line-height: 1.2; }
 .pick .val.none { color: var(--muted); font-size: 13px; font-weight: 500; }
@@ -236,7 +240,7 @@ th { color: var(--muted); }
 const TZ = 'Europe/Vilnius';
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const CITIES = [['all', 'All'], ['Vilniaus klubai', 'Vilnius'], ['Kauno klubai', 'Kaunas'], ['Šiaulių klubai', 'Šiauliai']];
+const CITIES = [['all', 'All'], ['Vilniaus klubai', 'Vilnius'], ['Kauno klubai', 'Kaunas'], ['Šiaulių klubai', 'Šiauliai'], ['Klaipėdos klubai', 'Klaipėda'], ['Panevėžio klubai', 'Panevėžys']];
 const LEVELS = [
   { max: 35, label: 'Quiet', color: 'var(--good)' },
   { max: 60, label: 'Moderate', color: 'var(--warning)' },
@@ -266,6 +270,10 @@ const OPERATORS = {
   lemongym: {
     name: 'Lemon Gym', cls: 'lemon',
     icon: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.6 4.4c.5 1 .4 2 .1 2.8 1.4 2.6.9 6.3-1.7 8.9s-6.3 3.1-8.9 1.7c-.8.3-1.8.4-2.8-.1-.3 0-.6-.3-.6-.6-.5-1-.4-2-.1-2.8C4.2 11.700 4.700 8 7.300 5.400s6.300-3.100 8.900-1.700c.8-.3 1.800-.4 2.800.1.300 0 .6.300.6.600Z"/><path fill="#2f8f3a" d="M16.500 3.200c1.300-1.900 3.600-2.700 6-2.200-.3 2.500-2 4.300-4.400 4.700-.2-1-.8-1.900-1.600-2.500Z"/></svg>',
+  },
+  impuls: {
+    name: 'Impuls', cls: 'impuls',
+    icon: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.500 2 5 13.500h5.500L9.500 22 19 10h-6z"/></svg>',
   },
   'zalgirio-baseinas': {
     name: 'Žalgirio baseinas', cls: 'pool',
