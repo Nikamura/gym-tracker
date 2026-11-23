@@ -142,6 +142,9 @@ h2 { font-size: 15px; font-weight: 660; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 18px; height: 0; border-top: 2px solid var(--accent); }
 .legend i.t { border-top: 2px dashed var(--typical); }
+.legend i.b { width: 9px; height: 11px; border: 0; border-radius: 2px 2px 0 0; background: var(--accent); }
+.legend i.b.few { opacity: .42; }
+.legend i.b.closed { height: 3px; border-radius: 1px; opacity: .3; }
 .chart { position: relative; width: 100%; height: 250px; touch-action: pan-y; }
 .chart svg { display: block; width: 100%; height: 100%; }
 .chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -150,6 +153,10 @@ h2 { font-size: 15px; font-weight: 660; }
 .ln.t { stroke: var(--typical); stroke-dasharray: 4 4; stroke-width: 1.6; }
 .area { fill: var(--accent); opacity: .09; }
 .pt { fill: var(--accent); }
+.bar { fill: var(--accent); }
+.bar.few { opacity: .42; }
+.bar-closed { fill: var(--accent); opacity: .3; }
+.bar-hover { fill: var(--accent-soft); }
 .cross { stroke: var(--line-strong); stroke-width: 1; }
 .hover-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
 .tooltip { position: absolute; z-index: 5; top: 4px; pointer-events: none; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raised); box-shadow: 0 4px 14px rgba(0,0,0,.25); font-size: 12.5px; white-space: nowrap; opacity: 0; transition: opacity .1s ease; }
@@ -238,6 +245,7 @@ const LEVELS = [
 ];
 const GAP_SECONDS = 75 * 60;
 const DAY_START_HOUR = 6;
+const FEW_READINGS = 8;
 const VISIT_HOURS = 2;
 // A visit must start and finish inside the window, so nothing suggests 3am.
 const WINDOWS = [
@@ -281,6 +289,7 @@ const fmtTime = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit'
 const fmtDay = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' });
 const fmtWeekday = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short' });
 const fmtDate = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: 'numeric', month: 'short' });
+const fmtKey = new Intl.DateTimeFormat('en-CA', { timeZone: TZ });
 const fmtHour = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' });
 const time = (ts) => fmtTime.format(ts * 1000);
 const hh = (h) => String(h).padStart(2, '0') + ':00';
@@ -481,7 +490,7 @@ function renderDetail() {
           ${[[1, 'Today'], [7, '7 days'], [30, '30 days']].map(([v, l]) => `<button type="button" data-days="${v}" aria-pressed="${state.days === v}">${l}</button>`).join('')}
         </div>
       </div>
-      ${state.days === 1 ? '<div class="legend"><span><i></i>Today</span><span><i class="t"></i>Usual for ' + DAY_NAMES[d.dow] + '</span></div>' : ''}
+      ${state.days === 1 ? '<div class="legend"><span><i></i>Today</span><span><i class="t"></i>Usual for ' + DAY_NAMES[d.dow] + '</span></div>' : `<div class="legend"><span><i class="b"></i>Busiest reading each day, ${hh(WINDOWS[0].from)}–${hh(WINDOWS[0].to)}</span><span><i class="b few"></i>Fewer than ${FEW_READINGS} readings</span><span><i class="b closed"></i>Closed or no reading</span></div>`}
       <div class="chart" id="line" role="img" aria-label="${esc(chartSummary(d))}"></div>
     </section>
     <section>
@@ -564,14 +573,92 @@ function typicalTable(d) {
   return `<table><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+function dailyPeaks(d) {
+  const days = [], byKey = new Map();
+  for (let i = d.days - 1; i >= 0; i--) {
+    const anchor = d.dayStart + 43200 - i * 86400;
+    const day = { key: fmtKey.format(anchor * 1000), anchor, values: [], closed: 0, peak: null };
+    days.push(day);
+    byKey.set(day.key, day);
+  }
+  for (const [ts, v] of d.points) {
+    const hour = Number(fmtHour.format(ts * 1000)) % 24;
+    if (hour < WINDOWS[0].from || hour >= WINDOWS[0].to) continue;
+    const day = byKey.get(fmtKey.format(ts * 1000));
+    if (!day) continue;
+    if (v === null) { day.closed++; continue; }
+    day.values.push(v);
+    if (!day.peak || v > day.peak.v) day.peak = { v, ts };
+  }
+  return days;
+}
+
+function drawDaily(host, d) {
+  const days = dailyPeaks(d);
+  if (!days.some((day) => day.peak || day.closed)) {
+    host.onpointermove = host.onpointerdown = host.onpointerleave = null;
+    host.innerHTML = '<div class="empty">No daytime readings in this period yet.</div>';
+    return;
+  }
+  const W = Math.max(280, host.clientWidth), H = host.clientHeight || 250;
+  const m = { t: 10, r: 6, b: 24, l: 34 };
+  const band = (W - m.l - m.r) / days.length;
+  const barW = Math.max(3, Math.min(34, band - Math.max(2, band * .22)));
+  const y = (v) => m.t + (1 - v / 100) * (H - m.t - m.b);
+  const cx = (i) => m.l + band * (i + .5);
+  const f = (n) => n.toFixed(1);
+  const labelEvery = d.days === 7 ? 1 : W < 460 ? 10 : 5;
+  let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`;
+  for (const v of [0, 25, 50, 75, 100]) {
+    s += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${f(y(v))}" y2="${f(y(v))}"/><text x="${m.l - 7}" y="${f(y(v) + 3.5)}" text-anchor="end">${v}</text>`;
+  }
+  s += `<rect class="bar-hover" id="bar-hover" y="${m.t}" width="${f(band)}" height="${H - m.t - m.b}" visibility="hidden"/>`;
+  days.forEach((day, i) => {
+    if ((days.length - 1 - i) % labelEvery === 0) {
+      const label = d.days === 7 ? fmtWeekday.format(day.anchor * 1000) : fmtDate.format(day.anchor * 1000);
+      s += `<text x="${f(Math.min(W - m.r - 16, Math.max(m.l + 12, cx(i))))}" y="${H - 6}" text-anchor="middle">${esc(label)}</text>`;
+    }
+    if (!day.peak) {
+      if (day.closed) s += `<rect class="bar-closed" x="${f(cx(i) - barW / 2)}" y="${f(y(0) - 3)}" width="${f(barW)}" height="3" rx="1"/>`;
+      return;
+    }
+    const base = y(0), top = Math.min(y(day.peak.v), base - 2), x = cx(i) - barW / 2, r = Math.min(3, barW / 2, base - top);
+    s += `<path class="bar${day.values.length < FEW_READINGS ? ' few' : ''}" d="M${f(x)} ${f(base)}V${f(top + r)}Q${f(x)} ${f(top)} ${f(x + r)} ${f(top)}H${f(x + barW - r)}Q${f(x + barW)} ${f(top)} ${f(x + barW)} ${f(top + r)}V${f(base)}Z"/>`;
+  });
+  s += '</svg><div class="tooltip" id="line-tip"></div>';
+  host.innerHTML = s;
+  const hover = host.querySelector('#bar-hover'), tip = host.querySelector('#line-tip');
+  const hide = () => { hover.setAttribute('visibility', 'hidden'); tip.classList.remove('on'); };
+  const move = (event) => {
+    const rect = host.getBoundingClientRect();
+    const px = ((event.clientX - rect.left) / rect.width) * W;
+    const i = Math.floor((px - m.l) / band);
+    const day = days[i];
+    if (!day) return hide();
+    hover.setAttribute('x', m.l + band * i);
+    hover.setAttribute('visibility', 'visible');
+    const n = day.values.length;
+    tip.innerHTML = day.peak
+      ? `<div><b class="tnum">${day.peak.v}%</b> at ${time(day.peak.ts)}</div><div>${esc(fmtDay.format(day.anchor * 1000))} · ${n} reading${n === 1 ? '' : 's'}</div>`
+      : `<div><b>${day.closed ? 'Closed or no reading' : 'No daytime readings'}</b></div><div>${esc(fmtDay.format(day.anchor * 1000))}</div>`;
+    tip.classList.add('on');
+    const left = (cx(i) / W) * rect.width;
+    tip.style.left = Math.max(0, Math.min(rect.width - tip.offsetWidth, left + (left > rect.width / 2 ? -tip.offsetWidth - 10 : 10))) + 'px';
+  };
+  host.onpointermove = move;
+  host.onpointerdown = move;
+  host.onpointerleave = hide;
+}
+
 function drawLine() {
   const host = $('line');
   const d = state.detail;
   if (!host || !d) return;
+  if (d.days !== 1) return drawDaily(host, d);
   const W = Math.max(280, host.clientWidth), H = host.clientHeight || 250;
   const m = { t: 10, r: 10, b: 24, l: 34 };
-  const from = d.days === 1 ? d.dayStart + DAY_START_HOUR * 3600 : d.now - d.days * 86400;
-  const to = d.days === 1 ? d.dayStart + 86400 : d.now;
+  const from = d.dayStart + DAY_START_HOUR * 3600;
+  const to = d.dayStart + 86400;
   const x = (ts) => m.l + ((ts - from) / (to - from)) * (W - m.l - m.r);
   const y = (v) => m.t + (1 - v / 100) * (H - m.t - m.b);
   const visible = d.points.filter((p) => p[0] >= from);
@@ -595,16 +682,12 @@ function drawLine() {
     s += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${f(y(v))}" y2="${f(y(v))}"/><text x="${m.l - 7}" y="${f(y(v) + 3.5)}" text-anchor="end">${v}</text>`;
   }
   const ticks = [];
-  if (d.days === 1) for (let h = DAY_START_HOUR; h <= 24; h += W < 460 ? 6 : 3) ticks.push([d.dayStart + h * 3600, h === 24 ? '' : String(h).padStart(2, '0')]);
-  else {
-    const step = d.days === 7 ? 86400 : (W < 460 ? 10 : 5) * 86400;
-    for (let t = to; t > from + step * 0.35; t -= step) ticks.push([t, d.days === 7 ? fmtWeekday.format(t * 1000) : fmtDate.format(t * 1000)]);
-  }
+  for (let h = DAY_START_HOUR; h <= 24; h += W < 460 ? 6 : 3) ticks.push([d.dayStart + h * 3600, h === 24 ? '' : String(h).padStart(2, '0')]);
   for (const [t, label] of ticks) {
     const px = x(t);
     if (label) s += `<text x="${f(Math.min(W - m.r - 12, Math.max(m.l + 8, px)))}" y="${H - 6}" text-anchor="middle">${esc(label)}</text>`;
   }
-  if (d.days === 1) {
+  {
     const day = d.typical[d.dow] || [];
     let path = '', pen = false;
     day.forEach((v, h) => {
