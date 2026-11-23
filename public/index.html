@@ -487,7 +487,7 @@ function renderDetail() {
     <section>
       <div class="sec-head"><h2>Usual week</h2><span class="unit">% full at each day's low and peak, 10:00–21:00</span></div>
       <div class="heat-wrap" id="heat-wrap">${heatmap(d)}<div class="tooltip" id="heat-tip"></div></div>
-      <div class="scale"><span>0%</span><i class="ramp" style="background:${heatLegend()}"></i><span>${HEAT_SCALE.at(-1)[0]}%+</span></div>
+      <div class="scale"><span>0%</span><i class="ramp" style="background:${heatLegend()}"></i><span>${heatPeak(d)}%</span></div>
       <details><summary>View as table</summary><div class="table-wrap">${typicalTable(d)}</div></details>
     </section>
     <p class="note">Based on the median of the last 6 months, Lithuanian time. Best times assume a 2-hour visit. A reading of 100% is shown as full only when the club was already busy, because the source also reports 100% when a club is closed.</p>`;
@@ -505,14 +505,20 @@ function chartSummary(d) {
 const HEAT_SCALE = [[0,"#bdeec4"],[12,"#62d07a"],[25,"#23a955"],[35,"#9ccc3c"],[45,"#f5c827"],[55,"#f48f2c"],[65,"#df3f38"],[80,"#a5121d"]];
 // Text color with the higher contrast on each part of the scale.
 const HEAT_WHITE_TEXT = [[66,100]];
-function heatStyle(v) {
-  const top = HEAT_SCALE.at(-1);
-  const clamped = Math.min(v, top[0]);
+// Red marks this club's usual peak, but never below 50% so a quiet club stays calm.
+const HEAT_MIN_PEAK = 50;
+function heatPeak(d) {
+  const values = d.typical.flatMap((day) => day.slice(DAY_START_HOUR)).filter((v) => v !== null);
+  return Math.max(HEAT_MIN_PEAK, ...values);
+}
+function heatStyle(v, peak) {
+  const end = HEAT_SCALE.at(-1)[0];
+  const clamped = Math.min(v / peak, 1) * end;
   const upper = HEAT_SCALE.findIndex(([stop], i) => i > 0 && clamped <= stop);
   const [from, low] = HEAT_SCALE[upper - 1];
   const [to, high] = HEAT_SCALE[upper];
   const mix = Math.round(((clamped - from) / (to - from)) * 100);
-  const ink = HEAT_WHITE_TEXT.some(([a, b]) => v >= a && v <= b) ? '#ffffff' : '#0b0b0b';
+  const ink = HEAT_WHITE_TEXT.some(([a, b]) => clamped >= a && clamped <= b) ? '#ffffff' : '#0b0b0b';
   return `background:color-mix(in oklch, ${high} ${mix}%, ${low});color:${ink}`;
 }
 function heatLegend() {
@@ -534,6 +540,7 @@ function dayMarks(day) {
 
 function heatmap(d) {
   const nowHour = Number(fmtHour.format(d.now * 1000)) % 24;
+  const peak = heatPeak(d);
   let html = '<div class="heat" id="heat"><span></span>';
   for (let h = DAY_START_HOUR; h < 24; h++) html += `<span class="h">${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`;
   d.typical.forEach((day, dow) => {
@@ -545,7 +552,7 @@ function heatmap(d) {
       const now = dow === d.dow && h === nowHour ? ' now' : '';
       html += v === null
         ? `<button type="button" class="cell nil${now}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1"></button>`
-        : `<button type="button" class="cell${now}" style="${heatStyle(v)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${marks.has(h) || now ? v : ''}</button>`;
+        : `<button type="button" class="cell${now}" style="${heatStyle(v, peak)}" data-tip="${esc(label)}" aria-label="${esc(label)}" tabindex="-1">${marks.has(h) || now ? v : ''}</button>`;
     });
   });
   return html + '</div>';
