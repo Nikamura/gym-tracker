@@ -57,7 +57,13 @@ export function createHandler(store: Store, publicDir: string, nowSeconds = () =
       res.writeHead(405, { Allow: 'GET, HEAD' }).end();
       return;
     }
-    const url = new URL(req.url ?? '/', 'http://localhost');
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost');
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
     const path = url.pathname;
     const now = nowSeconds();
 

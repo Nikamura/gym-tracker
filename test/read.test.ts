@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +68,15 @@ test('API serves data, hides nothing sensitive, and rejects bad input', async ()
     assert.equal((await fetch(`${base}/../package.json`)).status, 404);
     assert.equal((await fetch(`${base}/api/overview`, { method: 'POST' })).status, 405);
     assert.match(await (await fetch(`${base}/`)).text(), /Gym Tracker/);
+    const raw = await new Promise<string>((resolve, reject) => {
+      const { port } = server.address() as AddressInfo;
+      const socket = connect(port, '127.0.0.1', () => socket.write('GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'));
+      let body = '';
+      socket.on('data', (chunk) => (body += chunk));
+      socket.on('end', () => resolve(body));
+      socket.on('error', reject);
+    });
+    assert.match(raw, /^HTTP\/1\.1 400/);
   } finally {
     server.close();
     store.close();
